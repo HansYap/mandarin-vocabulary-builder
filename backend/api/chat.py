@@ -19,14 +19,32 @@ chat_bp = Blueprint('chat', __name__)
 @chat_bp.route('', methods=['POST'])
 @chat_bp.route('/', methods=['POST'])
 def chat():
+    """
+    UPDATED: Now accepts both original text and edited text.
+    Frontend can send either auto-transcribed or user-edited text.
+    """
     data = request.get_json(silent=True) or {}
     
     user_input = data.get('text') or data.get('message')
     session_id = data.get('session_id', 'default')
+    is_edited = data.get('is_edited', False)  # NEW: Track if user edited the text
+    original_text = data.get('original_text', None)  # NEW: Keep original for logging/analysis
+
+    if not user_input:
+        return jsonify({
+            'status': 'error',
+            'message': 'No text provided'
+        }), 400
 
     # Init session storage
     conversation_histories.setdefault(session_id, [])
     transcripts.setdefault(session_id, [])
+
+    # Log if edited
+    if is_edited and original_text:
+        print(f"📝 User edited transcript:")
+        print(f"   Original: '{original_text}'")
+        print(f"   Edited:   '{user_input}'")
 
     transcripts[session_id].append({'role': 'user', 'text': user_input})
 
@@ -77,5 +95,6 @@ def chat():
         'response': response,
         'transcript': user_input,
         'session_id': session_id,
-        'audio': audio_url
+        'audio': audio_url,
+        'was_edited': is_edited  # NEW: Let frontend know if this was edited
     })
