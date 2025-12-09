@@ -1,0 +1,2 @@
+transcripts = {}
+conversation_histories = {}

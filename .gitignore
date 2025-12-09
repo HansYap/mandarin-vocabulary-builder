@@ -1,0 +1,124 @@
+# ========================
+# Backend (Python) ignores
+# ========================
+
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[codz]
+*$py.class
+
+# C extensions
+*.so
+
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# PyInstaller
+*.manifest
+*.spec
+
+# Installer logs
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Unit test / coverage reports
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.py.cover
+.hypothesis/
+.pytest_cache/
+cover/
+
+# Django / Flask / Scrapy / Sphinx / PyBuilder / Jupyter / IPython
+*.log
+local_settings.py
+db.sqlite3
+db.sqlite3-journal
+instance/
+.webassets-cache
+.scrapy
+docs/_build/
+.pybuilder/
+target/
+.ipynb_checkpoints
+profile_default/
+ipython_config.py
+
+# Environments
+.env
+.envrc
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# PyCharm / VS Code / other tools
+# .idea/
+.vscode/
+.ruff_cache/
+.pypirc
+.cursorignore
+.cursorindexingignore
+
+# ========================
+# Frontend (React / Node) ignores
+# ========================
+
+# Node modules
+frontend/node_modules/
+
+# Build output
+frontend/build/
+frontend/dist/
+frontend/.turbo/
+frontend/.next/          # if using Next.js
+frontend/.expo/          # if using Expo
+frontend/out/
+
+# Log files
+frontend/npm-debug.log*
+frontend/yarn-debug.log*
+frontend/yarn-error.log*
+
+# Environment variables
+frontend/.env
+frontend/.env.local
+frontend/.env.development.local
+frontend/.env.test.local
+frontend/.env.production.local
+
+# Mac / Linux system files
+frontend/.DS_Store
+frontend/*.swp
+frontend/.vscode/
+
+# Misc
+frontend/.parcel-cache/
+frontend/.pnp.*
+frontend/.cache/
