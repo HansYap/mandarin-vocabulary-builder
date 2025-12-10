@@ -1,222 +1,205 @@
-from backend.utils.phrase_extractor import PhraseExtractor
-from backend.models.llm_handler import LLMHandler
+import json
 import re
-from typing import List, Dict, Any
-
+from typing import List, Dict, Optional
+from backend.models.llm_handler import LLMHandler
+from backend.models.schemas import SessionFeedback, VocabCard, SentenceCorrection
 
 class FeedbackGenerator:
     def __init__(self, llm_handler: LLMHandler):
         self.llm = llm_handler
-        # small in-memory cache to avoid repeated LLM calls in a single run
-        self._cache = {}
+        # Re-use the dictionary from your LLMHandler
+        self.dictionary = getattr(llm_handler, 'dictionary', {})
 
-    # --- helpers ---
-    def _is_english_phrase(self, token: str) -> bool:
+    def analyze_session(self, transcript: List[Dict]) -> Dict:
         """
-        Return True if token contains at least one ASCII letter and
-        does NOT contain CJK characters. Allows hyphens and spaces.
+        Orchestrates the analysis pipeline:
+        1. Extract English phrases
+        2. Resolve phrases (Dictionary First -> LLM Fallback)
+        3. Correct full sentences
+        
+        Returns: JSON-serializable dict matching SessionFeedback schema
         """
-        print(f"[DEBUG] Checking if '{token}' is English phrase...")
         
-        # contains any CJK? if yes -> not english phrase
-        if re.search(r'[\u4e00-\u9fff]', token):
-            print(f"[DEBUG] ❌ '{token}' contains Chinese characters - NOT English")
-            return False
-        
-        # must contain at least one ascii letter
-        has_letter = bool(re.search(r'[A-Za-z]', token))
-        print(f"[DEBUG] {'✅' if has_letter else '❌'} '{token}' is {'English' if has_letter else 'NOT English'}")
-        return has_letter
-
-    def _normalize_phrase(self, phrase: str) -> str:
-        return phrase.strip().lower()
-
-    def _cached_suggest(self, phrase: str, context: str) -> Dict[str, Any]:
-        key = ("sug", self._normalize_phrase(phrase), context)
-        if key in self._cache:
-            print(f"[CACHE HIT] Using cached suggestion for '{phrase}'")
-            return self._cache[key]
-        
-        print(f"[CACHE MISS] Calling LLM suggest_phrase for '{phrase}'...")
-        res = self.llm.suggest_phrase(english_phrase=phrase, sentence_context=context)
-        
-        # normalize fallback shapes: ensure dict keys exist
-        if isinstance(res, dict) and "raw" in res:
-            out = {
-                "word": phrase,
-                "translation": res.get("raw", "")[:120],
-                "alternatives": [],
-                "example": ""
-            }
-        elif isinstance(res, dict):
-            out = {
-                "word": res.get("word", phrase),
-                "translation": res.get("translation", "") or "",
-                "alternatives": res.get("alternatives", []) or [],
-                "example": (res.get("example", "") or "")[:120]
-            }
-        else:
-            out = {
-                "word": phrase,
-                "translation": str(res)[:120],
-                "alternatives": [],
-                "example": ""
-            }
-        self._cache[key] = out
-        return out
-
-    def _cached_correct(self, sentence: str) -> Dict[str, str]:
-        key = ("corr", sentence)
-        if key in self._cache:
-            print(f"[CACHE HIT] Using cached correction for sentence")
-            return self._cache[key]
-        
-        print(f"[CACHE MISS] Calling LLM correct_sentence...")
-        res = self.llm.correct_sentence(broken_sentence=sentence)
-        
-        if isinstance(res, dict) and "corrected" in res:
-            out = {"corrected": res.get("corrected", ""), "note": res.get("note", "")}
-        elif isinstance(res, dict) and "raw" in res:
-            out = {"corrected": res.get("raw", ""), "note": ""}
-        else:
-            out = {"corrected": str(res), "note": ""}
-        self._cache[key] = out
-        return out
-
-    # --- main API ---
-    def analyze_session(self, transcript: List[Dict[str, str]]) -> Dict[str, Any]:
-        """
-        Returns:
-        {
-            "per_word": [
-                {
-                  "english": "good",
-                  "translation": "好",
-                  "alternatives": ["不错"],
-                  "example": "今天很好。",
-                  "sentence_index": 0
-                }, ...
-            ],
-            "per_sentence": [
-                {
-                  "original": "今天很 good，我想 drink tea.",
-                  "corrected": "今天很好，我想喝茶。",
-                  "words_needing_feedback": ["good", "drink tea"]
-                }, ...
-            ],
-            "summary": "Analyzed N turns; M words flagged."
-        }
-        """
         print("\n" + "="*60)
-        print("[ANALYZE SESSION] Starting analysis...")
-        print(f"[ANALYZE SESSION] Transcript has {len(transcript)} turns")
+        print("[SMART FEEDBACK] Starting analysis...")
+        print(f"[SMART FEEDBACK] Transcript has {len(transcript)} turns")
         print("="*60 + "\n")
         
-        self._cache.clear()
-        per_word = []
-        sentence_to_words = {}  # idx -> list of phrases
-        sentence_texts = {}     # idx -> original text
-        total_words_flagged = 0
-
-        # 1) collect English candidate phrases and map them to sentence indices
+        # 1. Identify English phrases & sentences to fix
+        english_phrases = set()
+        sentences_to_fix = []
+        
         for idx, turn in enumerate(transcript):
-            print(f"\n[TURN {idx}] Role: {turn.get('role')}")
-            
-            if turn.get("role") != "user":
-                print(f"[TURN {idx}] ⏭️  Skipping (not user turn)")
-                continue
-            
-            text = turn.get("text", "")
-            print(f"[TURN {idx}] User said: '{text}'")
-            sentence_texts[idx] = text
-
-            # Extract phrases
-            print(f"[TURN {idx}] Extracting phrases...")
-            tokens = PhraseExtractor.extract_phrases(text)
-            print(f"[TURN {idx}] Extracted tokens: {tokens}")
-
-            # Keep only English phrases (skip Chinese tokens)
-            english_tokens = [t for t in tokens if self._is_english_phrase(t)]
-            print(f"[TURN {idx}] English tokens after filtering: {english_tokens}")
-
-            if not english_tokens:
-                print(f"[TURN {idx}] ⚠️  No English phrases found")
-                continue
-
-            # prioritize multi-word phrases and avoid overlapping words
-            tokens_sorted = sorted(english_tokens, key=lambda t: -len(t.split()))
-            print(f"[TURN {idx}] Sorted by length (longest first): {tokens_sorted}")
-            
-            seen = set()
-            selected = []
-            for t in tokens_sorted:
-                words = [w.lower() for w in t.split()]
-                if any(w in seen for w in words):
-                    print(f"[TURN {idx}]   ⏭️  Skipping '{t}' (overlaps with already selected)")
-                    continue
-                selected.append(t)
-                print(f"[TURN {idx}]   ✅ Selected '{t}'")
-                for w in words:
-                    seen.add(w)
-
-            if selected:
-                sentence_to_words[idx] = selected
-                print(f"[TURN {idx}] Final selected phrases: {selected}")
-
-        print(f"\n{'='*60}")
-        print(f"[PHASE 1 COMPLETE] Found {len(sentence_to_words)} sentences with English phrases")
-        print(f"{'='*60}\n")
-
-        # 2) For each sentence, call suggest_phrase for each selected word/phrase
-        for sent_idx, phrases in sentence_to_words.items():
-            sent_text = sentence_texts.get(sent_idx, "")
-            print(f"\n[SENTENCE {sent_idx}] Processing {len(phrases)} phrases...")
-            
-            for phrase in phrases:
-                if len(phrase.strip()) < 1:
-                    continue
+            if turn.get('role') == 'user':
+                text = turn.get('content') or turn.get('text', '')
+                print(f"[TURN {idx}] User: '{text}'")
                 
-                print(f"[SENTENCE {sent_idx}] Getting suggestion for '{phrase}'...")
-                suggestion = self._cached_suggest(phrase, sent_text)
+                # Collect English phrases
+                phrases = self._extract_english_phrases(text)
+                print(f"[TURN {idx}] Extracted English: {phrases}")
+                english_phrases.update(phrases)
                 
-                per_word.append({
-                    "english": phrase,
-                    "translation": suggestion.get("translation", ""),
-                    "alternatives": suggestion.get("alternatives", []),
-                    "example": suggestion.get("example", ""),
-                    "sentence_index": sent_idx
-                })
-                total_words_flagged += 1
-                print(f"[SENTENCE {sent_idx}]   → Translation: {suggestion.get('translation', '')}")
+                # If it has English or is mixed, collect for correction
+                if phrases or self._has_mixed_language(text):
+                    sentences_to_fix.append(text)
 
-        print(f"\n{'='*60}")
-        print(f"[PHASE 2 COMPLETE] Generated {total_words_flagged} word suggestions")
-        print(f"{'='*60}\n")
+        print(f"\n[PHASE 1] Found {len(english_phrases)} unique English phrases")
+        print(f"[PHASE 1] {len(sentences_to_fix)} sentences need correction\n")
 
-        # 3) After per-word loop, produce corrected sentences for sentences that had flagged words
-        per_sentence = []
-        for sent_idx, phrases in sentence_to_words.items():
-            original = sentence_texts.get(sent_idx, "")
-            print(f"\n[CORRECTION {sent_idx}] Correcting: '{original}'")
+        # 2. Build Vocabulary Cards (The Hybrid Engine)
+        vocab_cards = []
+        for phrase in sorted(english_phrases):  # Sort for consistent output
+            print(f"[VOCAB] Resolving '{phrase}'...")
+            card = self._resolve_phrase(phrase)
+            vocab_cards.append(card)
+
+        print(f"\n[PHASE 2] Created {len(vocab_cards)} vocabulary cards\n")
+
+        # 3. Correct Sentences (last 3 to keep it fast)
+        corrections = []
+        corrected_words = {}  # Map: word -> corrected translation in sentence
+        
+        for sent in sentences_to_fix[-3:]:
+            print(f"[CORRECTION] Fixing: '{sent}'")
+            correction = self._fix_sentence_llm(sent)
+            if correction:
+                corrections.append(correction)
+                # Extract English words and their contextual Chinese equivalents
+                eng_words = self._extract_english_phrases(sent)
+                for word in eng_words:
+                    corrected_words[word.lower()] = sent  # Store which sentence it appeared in
+
+        print(f"\n[PHASE 3] Generated {len(corrections)} corrections\n")
+        
+        # Annotate vocabulary cards that also appear in corrections
+        for card in vocab_cards:
+            word_lower = card.original_text.lower()
+            if word_lower in corrected_words:
+                # Add context note to vocabulary card
+                card.context_note = f"💡 在句子中更自然的说法请看下方「句子修正」"
+                print(f"[ANNOTATE] '{card.original_text}' appears in both - adding context note")
+
+        print(f"[FILTER] Annotated {sum(1 for c in vocab_cards if c.context_note)} cards with context notes")
+
+        # 4. Assemble Final Response
+        feedback = SessionFeedback(
+            vocabulary=vocab_cards,  # Keep all cards, but annotated
+            corrections=corrections,
+            summary=f"Found {len(vocab_cards)} new words and {len(corrections)} grammar tips."
+        )
+
+        print("="*60)
+        print("[SMART FEEDBACK COMPLETE]")
+        print(f"Summary: {feedback.summary}")
+        print("="*60 + "\n")
+
+        return feedback.model_dump()  # Returns clean JSON dict
+
+    # --- THE "HYBRID" RESOLVER ---
+    def _resolve_phrase(self, phrase: str) -> VocabCard:
+        """
+        Resolves a phrase using Dictionary First, then LLM fallback.
+        """
+        clean_phrase = phrase.lower().strip()
+        
+        # PATH A: Dictionary Lookup (Instant & Accurate)
+        if clean_phrase in self.dictionary:
+            entry = self.dictionary[clean_phrase]
+            print(f"  [DICT] ✅ Found in dictionary: {entry['translation']} [{entry['pinyin']}]")
             
-            corrected_info = self._cached_correct(original)
-            per_sentence.append({
-                "original": original,
-                "corrected": corrected_info.get("corrected", ""),
-                "note": corrected_info.get("note", ""),
-                "words_needing_feedback": phrases
-            })
-            print(f"[CORRECTION {sent_idx}]   → Corrected: {corrected_info.get('corrected', '')}")
+            return VocabCard(
+                original_text=phrase,
+                mandarin_text=entry['translation'],
+                pinyin=entry['pinyin'],
+                example_sentence=f"例句：{entry['translation']}",  # Dictionary lacks examples
+                difficulty_level="Dictionary",
+                type="word",
+                source="dictionary"
+            )
 
-        summary = f"Analyzed {len(sentence_texts)} turns; flagged {total_words_flagged} words/phrases across {len(per_sentence)} sentences."
+        # PATH B: LLM Generation (Creative & Context-Aware)
+        print(f"  [LLM] ⚠️  Not in dictionary, calling LLM...")
+        
+        # Use existing suggest_phrase method from LLMHandler
+        try:
+            result = self.llm.suggest_phrase(english_phrase=phrase, sentence_context="")
+            
+            print(f"  [LLM] ✅ Got: {result.get('translation', '')} [{result.get('pinyin', '')}]")
+            
+            return VocabCard(
+                original_text=phrase,
+                mandarin_text=result.get('translation', phrase),
+                pinyin=result.get('pinyin', ''),
+                example_sentence=result.get('example', ''),
+                difficulty_level='Unknown',  # LLM doesn't provide this
+                type='phrase',
+                source=result.get('source', 'llm')
+            )
+        except Exception as e:
+            print(f"  [LLM] ❌ Failed: {e}")
+            # Fallback Card
+            return VocabCard(
+                original_text=phrase,
+                mandarin_text="[Not Found]",
+                pinyin="",
+                example_sentence="",
+                difficulty_level="Unknown",
+                type="unknown",
+                source="error"
+            )
 
-        print(f"\n{'='*60}")
-        print(f"[ANALYSIS COMPLETE]")
-        print(f"{summary}")
-        print(f"{'='*60}\n")
+    def _fix_sentence_llm(self, sentence: str) -> Optional[SentenceCorrection]:
+        """
+        Corrects a sentence using LLM's existing correct_sentence method.
+        """
+        try:
+            result = self.llm.correct_sentence(broken_sentence=sentence)
+            
+            print(f"  [CORRECTION] ✅ Corrected to: {result.get('corrected', '')}")
+            
+            return SentenceCorrection(
+                original_sentence=sentence,
+                corrected_sentence=result.get('corrected', sentence),
+                explanation=result.get('note', ''),
+                note='',
+                highlight_ranges=[]  # TODO: Implement word-level diff if needed
+            )
+        except Exception as e:
+            print(f"  [CORRECTION] ❌ Failed: {e}")
+            return None
 
-        return {
-            "per_word": per_word,
-            "per_sentence": per_sentence,
-            "summary": summary
-        }
+    # --- HELPER METHODS ---
+    def _extract_english_phrases(self, text: str) -> List[str]:
+        """
+        Improved Regex: Captures multi-word phrases like "ice cream".
+        Ignores pure punctuation.
+        """
+        # Match sequences of letters with optional spaces/hyphens
+        candidates = re.findall(r'[a-zA-Z][a-zA-Z\s\-]*[a-zA-Z]|[a-zA-Z]', text)
+        return [c.strip() for c in candidates if len(c.strip()) > 0]
+
+    def _has_mixed_language(self, text: str) -> bool:
+        """
+        Check if text contains both Chinese and English.
+        """
+        has_chinese = bool(re.search(r'[\u4e00-\u9fff]', text))
+        has_english = bool(re.search(r'[a-zA-Z]', text))
+        return has_chinese and has_english
+
+    def _clean_and_parse_json(self, text: str) -> dict:
+        """
+        Robust JSON parser for LLM output.
+        Handles markdown code blocks and extra text.
+        """
+        # Remove markdown code blocks
+        text = text.replace("```json", "").replace("```", "").strip()
+        
+        try:
+            return json.loads(text)
+        except:
+            # Find first { and last }
+            start = text.find('{')
+            end = text.rfind('}') + 1
+            if start != -1 and end > start:
+                return json.loads(text[start:end])
+            raise ValueError(f"No valid JSON found in: {text[:100]}...")

@@ -34,31 +34,25 @@ export default function App() {
   const [error, setError] = useState(null);
   const listRef = useRef(null);
 
-  // NEW: Auto-submit toggle state
   const [autoSubmit, setAutoSubmit] = useState(() => {
     try {
       const saved = localStorage.getItem("auto_submit_mode");
       return saved === "true";
     } catch (e) {
-      return false; // Default to manual mode
+      return false;
     }
   });
 
-  // NEW: Pending transcript state for manual edit mode
   const [pendingTranscript, setPendingTranscript] = useState(null);
   const [editableText, setEditableText] = useState("");
 
-  // Save auto-submit preference
   useEffect(() => {
     try {
       localStorage.setItem("auto_submit_mode", autoSubmit.toString());
     } catch (e) {}
   }, [autoSubmit]);
 
-  // Audio ref for playing TTS
   const audioRef = useRef(null);
-
-  // mic/socket refs
   const socketRef = useRef(null);
   const mediaRecorderRef = useRef(null);
   const streamRef = useRef(null);
@@ -77,7 +71,6 @@ export default function App() {
     }
   }, [messages, loading]);
 
-  // Function to play audio
   function playAudio(audioDataUrl) {
     if (!audioDataUrl) return;
     
@@ -97,14 +90,12 @@ export default function App() {
     }
   }
 
-  // NEW: Function to send chat (used by both auto and manual modes)
   async function sendToChat(text, isEdited = false, originalText = null) {
     if (!text.trim()) {
       console.log("⚠️ Empty text, skipping chat");
       return;
     }
 
-    // Show final user message
     const userMsg = {
       id: uuidv4(),
       role: "user",
@@ -113,7 +104,6 @@ export default function App() {
     };
     setMessages((m) => [...m, userMsg]);
 
-    // Auto-send to /api/chat
     try {
       setLoading(true);
       console.log("📤 Sending to /api/chat:", text);
@@ -145,7 +135,6 @@ export default function App() {
       };
       setMessages((m) => [...m, assistantMsg]);
       
-      // Play audio if available
       if (d.audio) {
         console.log("🔊 Playing TTS audio");
         playAudio(d.audio);
@@ -165,7 +154,6 @@ export default function App() {
     }
   }
 
-  // Initialize socket once
   useEffect(() => {
     const socket = io(SOCKET_URL, { 
       transports: ["websocket"],
@@ -183,45 +171,29 @@ export default function App() {
       setLiveTranscript(text);
     });
 
-    // OLD EVENT: Keep for backward compatibility
     socket.on("final_transcript", async (data) => {
       console.log("✅ Final transcript (legacy):", data);
       const text = (data && data.text) || "";
-      
       setLiveTranscript("");
-      
-      if (!text) {
-        console.log("⚠️ Empty final transcript");
-        return;
-      }
-
-      // Legacy: Auto-send
+      if (!text) return;
       await sendToChat(text);
     });
 
-    // NEW EVENT: Handle transcript_ready
     socket.on("transcript_ready", async (data) => {
       console.log("✅ Transcript ready:", data);
       const text = (data && data.text) || "";
       const shouldAutoSubmit = data.auto_submit || autoSubmit;
       
       setLiveTranscript("");
-      
-      if (!text) {
-        console.log("⚠️ Empty transcript");
-        return;
-      }
+      if (!text) return;
 
       if (shouldAutoSubmit) {
-        // Auto-submit mode: Send immediately
         console.log("🚀 Auto-submitting transcript");
         await sendToChat(text, false, null);
       } else {
-        // Manual mode: Show for editing
         console.log("✋ Manual mode: Showing transcript for editing");
         setPendingTranscript(text);
         setEditableText(text);
-        // Focus will be handled by useEffect below
       }
     });
 
@@ -252,7 +224,6 @@ export default function App() {
     };
   }, [sessionId, autoSubmit]);
 
-  // Auto-focus on editable text when pending transcript appears
   const editTextareaRef = useRef(null);
   useEffect(() => {
     if (pendingTranscript && editTextareaRef.current) {
@@ -263,7 +234,7 @@ export default function App() {
   async function startRecording() {
     setError(null);
     setLiveTranscript("");
-    setPendingTranscript(null); // Clear any pending transcript
+    setPendingTranscript(null);
     
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
       setError("浏览器不支持麦克风访问");
@@ -296,18 +267,13 @@ export default function App() {
       socketRef.current.emit("start_speak", { session_id: sessionId });
 
       mediaRecorder.ondataavailable = async (e) => {
-        if (!e.data || e.data.size === 0) {
-          console.log("⚠️ Empty data chunk");
-          return;
-        }
+        if (!e.data || e.data.size === 0) return;
         
         console.log(`📦 Chunk size: ${e.data.size} bytes`);
 
         try {
           const arrayBuffer = await e.data.arrayBuffer();
           const uint8 = new Uint8Array(arrayBuffer);
-          
-          console.log(`📤 Sending chunk: ${uint8.length} bytes`);
           
           socketRef.current.emit("audio_chunk", {
             session_id: sessionId,
@@ -360,7 +326,6 @@ export default function App() {
     }
   }
 
-  // NEW: Handle sending edited transcript
   async function handleSendEdited() {
     const originalText = pendingTranscript;
     const finalText = editableText.trim();
@@ -372,21 +337,17 @@ export default function App() {
 
     const isEdited = finalText !== originalText;
     
-    // Optional: Notify backend of confirmation
     socketRef.current.emit("confirm_transcript", {
       session_id: sessionId,
       text: finalText
     });
 
-    // Clear pending state
     setPendingTranscript(null);
     setEditableText("");
 
-    // Send to chat
     await sendToChat(finalText, isEdited, originalText);
   }
 
-  // NEW: Cancel edited transcript
   function handleCancelEdit() {
     setPendingTranscript(null);
     setEditableText("");
@@ -431,9 +392,7 @@ export default function App() {
 
       setMessages((m) => [...m, assistantMsg]);
       
-      // Play audio if available
       if (data.audio) {
-        console.log("🔊 Playing TTS audio");
         playAudio(data.audio);
       }
     } catch (e) {
@@ -460,6 +419,7 @@ export default function App() {
 
   async function endSession() {
     setError(null);
+    setLoading(true);
     try {
       const resp = await fetch("http://127.0.0.1:5000/api/end-session/", {
         method: "POST",
@@ -477,6 +437,8 @@ export default function App() {
     } catch (e) {
       console.error("End session error", e);
       setError("结束会话失败: " + (e.message || e));
+    } finally {
+      setLoading(false);
     }
   }
 
@@ -543,141 +505,245 @@ export default function App() {
         </div>
       </header>
 
-      <main className="flex-1 p-4 max-w-3xl mx-auto w-full flex flex-col">
-        <div ref={listRef} className="flex-1 overflow-auto mb-4 p-3 bg-white rounded-lg shadow-sm" style={{ minHeight: 300 }}>
-          {messages.length === 0 && <div className="text-center text-slate-400 mt-20">Start the conversation by typing or speaking.</div>}
+      <main className="flex-1 p-4 max-w-5xl mx-auto w-full flex gap-4">
+        {/* Chat Column */}
+        <div className="flex-1 flex flex-col">
+          <div ref={listRef} className="flex-1 overflow-auto mb-4 p-3 bg-white rounded-lg shadow-sm" style={{ minHeight: 300 }}>
+            {messages.length === 0 && <div className="text-center text-slate-400 mt-20">Start the conversation by typing or speaking.</div>}
 
-          <div className="space-y-3">
-            {messages.map((m) => (
-              <div key={m.id} className={`p-3 rounded-lg max-w-[80%] ${m.role === "user" ? "ml-auto bg-indigo-50" : "mr-auto bg-slate-100"}`}>
-                <div className="text-sm whitespace-pre-wrap">{m.text}</div>
-                <div className="text-[11px] text-slate-400 mt-1 text-right">{new Date(m.ts).toLocaleString()}</div>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        <div className="bg-white p-3 rounded-lg shadow flex flex-col gap-2">
-          {error && <div className="text-sm text-red-600 p-2 bg-red-50 rounded">{error}</div>}
-
-          {liveTranscript && (
-            <div className="p-2 bg-blue-50 rounded border border-blue-200">
-              <div className="text-xs text-blue-600 font-semibold mb-1">🎤 Live Transcript:</div>
-              <div className="text-sm text-blue-800">{liveTranscript}</div>
-            </div>
-          )}
-
-          {/* NEW: Pending transcript editor */}
-          {pendingTranscript && (
-            <div className="p-3 bg-yellow-50 rounded border-2 border-yellow-400">
-              <div className="flex items-center justify-between mb-2">
-                <div className="text-xs font-semibold text-yellow-700">
-                  ✏️ Review & Edit Transcript (Manual Mode)
+            <div className="space-y-3">
+              {messages.map((m) => (
+                <div key={m.id} className={`p-3 rounded-lg max-w-[80%] ${m.role === "user" ? "ml-auto bg-indigo-50" : "mr-auto bg-slate-100"}`}>
+                  <div className="text-sm whitespace-pre-wrap">{m.text}</div>
+                  <div className="text-[11px] text-slate-400 mt-1 text-right">{new Date(m.ts).toLocaleString()}</div>
                 </div>
-                <button 
-                  onClick={handleCancelEdit}
-                  className="text-xs text-yellow-600 hover:text-yellow-800"
+              ))}
+            </div>
+          </div>
+
+          <div className="bg-white p-3 rounded-lg shadow flex flex-col gap-2">
+            {error && <div className="text-sm text-red-600 p-2 bg-red-50 rounded">{error}</div>}
+
+            {liveTranscript && (
+              <div className="p-2 bg-blue-50 rounded border border-blue-200">
+                <div className="text-xs text-blue-600 font-semibold mb-1">🎤 Live Transcript:</div>
+                <div className="text-sm text-blue-800">{liveTranscript}</div>
+              </div>
+            )}
+
+            {pendingTranscript && (
+              <div className="p-3 bg-yellow-50 rounded border-2 border-yellow-400">
+                <div className="flex items-center justify-between mb-2">
+                  <div className="text-xs font-semibold text-yellow-700">
+                    ✏️ Review & Edit Transcript (Manual Mode)
+                  </div>
+                  <button 
+                    onClick={handleCancelEdit}
+                    className="text-xs text-yellow-600 hover:text-yellow-800"
+                  >
+                    ✕ Cancel
+                  </button>
+                </div>
+                <textarea
+                  ref={editTextareaRef}
+                  value={editableText}
+                  onChange={(e) => setEditableText(e.target.value)}
+                  className="w-full p-2 rounded border border-yellow-300 resize-none focus:outline-none focus:ring-2 focus:ring-yellow-400"
+                  rows={3}
+                  placeholder="Edit your transcript here..."
+                />
+                <button
+                  onClick={handleSendEdited}
+                  disabled={!editableText.trim() || loading}
+                  className="mt-2 w-full px-4 py-2 bg-yellow-500 text-white rounded-md font-medium hover:bg-yellow-600 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  ✕ Cancel
+                  ✓ Send Edited Message
                 </button>
               </div>
-              <textarea
-                ref={editTextareaRef}
-                value={editableText}
-                onChange={(e) => setEditableText(e.target.value)}
-                className="w-full p-2 rounded border border-yellow-300 resize-none focus:outline-none focus:ring-2 focus:ring-yellow-400"
-                rows={3}
-                placeholder="Edit your transcript here..."
-              />
-              <button
-                onClick={handleSendEdited}
-                disabled={!editableText.trim() || loading}
-                className="mt-2 w-full px-4 py-2 bg-yellow-500 text-white rounded-md font-medium hover:bg-yellow-600 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                ✓ Send Edited Message
-              </button>
-            </div>
-          )}
+            )}
 
-          {/* Regular text input - disabled when pending transcript exists */}
-          <textarea 
-            value={input} 
-            onChange={(e) => setInput(e.target.value)} 
-            onKeyDown={handleKeyDown} 
-            placeholder="输入中文或英文（按 Enter 发送，Shift+Enter 换行）" 
-            rows={3} 
-            className="w-full p-2 rounded border resize-none focus:outline-none focus:ring disabled:bg-slate-100" 
-            disabled={isRecording || pendingTranscript !== null}
-          />
+            <textarea 
+              value={input} 
+              onChange={(e) => setInput(e.target.value)} 
+              onKeyDown={handleKeyDown} 
+              placeholder="输入中文或英文（按 Enter 发送，Shift+Enter 换行）" 
+              rows={3} 
+              className="w-full p-2 rounded border resize-none focus:outline-none focus:ring disabled:bg-slate-100" 
+              disabled={isRecording || pendingTranscript !== null}
+            />
 
-          <div className="flex items-center justify-between gap-3">
-            <div className="flex gap-2 items-center flex-wrap">
-              <button 
-                onClick={sendMessage} 
-                disabled={loading || isRecording || pendingTranscript !== null} 
-                className="px-4 py-2 bg-emerald-500 text-white rounded-md disabled:opacity-60"
-              >
-                {loading ? "发送中... / Sending" : "发送 / Send Message"}
-              </button>
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex gap-2 items-center flex-wrap">
+                <button 
+                  onClick={sendMessage} 
+                  disabled={loading || isRecording || pendingTranscript !== null} 
+                  className="px-4 py-2 bg-emerald-500 text-white rounded-md disabled:opacity-60 font-medium"
+                >
+                  {loading ? "发送中... / Sending" : "发送 / Send Message"}
+                </button>
 
-              <button 
-                onClick={isRecording ? stopRecording : startRecording} 
-                disabled={pendingTranscript !== null}
-                className={`px-3 py-2 rounded-md text-sm font-medium ${
-                  isRecording 
-                    ? "bg-red-500 text-white animate-pulse" 
-                    : "bg-blue-500 text-white hover:bg-blue-600 disabled:opacity-60"
-                }`}
-              >
-                {isRecording ? "⏹ Stop Speaking" : "🎤 Start Speaking"}
-              </button>
+                <button 
+                  onClick={isRecording ? stopRecording : startRecording} 
+                  disabled={pendingTranscript !== null}
+                  className={`px-3 py-2 rounded-md text-sm font-medium ${
+                    isRecording 
+                      ? "bg-red-500 text-white animate-pulse" 
+                      : "bg-blue-500 text-white hover:bg-blue-600 disabled:opacity-60"
+                  }`}
+                >
+                  {isRecording ? "⏹ Stop Speaking" : "🎤 Start Speaking"}
+                </button>
 
-              {/* NEW: Auto-submit toggle button */}
-              <button
-                onClick={() => setAutoSubmit(!autoSubmit)}
-                disabled={isRecording}
-                className={`px-3 py-2 rounded-md text-sm font-medium border-2 transition-colors ${
-                  autoSubmit
-                    ? "bg-green-500 text-white border-green-600 hover:bg-green-600"
-                    : "bg-white text-slate-700 border-slate-300 hover:bg-slate-50"
-                } disabled:opacity-60`}
-                title={autoSubmit ? "Auto-submit enabled: Transcripts sent immediately" : "Manual mode: Review transcripts before sending"}
-              >
-                {autoSubmit ? "⚡ Auto" : "✋ Manual"}
-              </button>
+                <button
+                  onClick={() => setAutoSubmit(!autoSubmit)}
+                  disabled={isRecording}
+                  className={`px-3 py-2 rounded-md text-sm font-medium border-2 transition-colors ${
+                    autoSubmit
+                      ? "bg-green-500 text-white border-green-600"
+                      : "bg-white text-slate-700 border-slate-300"
+                  } disabled:opacity-60`}
+                >
+                  {autoSubmit ? "⚡ Auto" : "✋ Manual"}
+                </button>
 
-              <button 
-                onClick={endSession} 
-                className="px-3 py-2 rounded-md text-sm bg-orange-400 text-white hover:bg-orange-500"
-              >
-                结束会话 / End Session
-              </button>
-            </div>
+                <button 
+                  onClick={endSession} 
+                  disabled={loading}
+                  className="px-3 py-2 rounded-md text-sm bg-orange-400 text-white hover:bg-orange-500 disabled:opacity-60 font-medium"
+                >
+                  End Session
+                </button>
+              </div>
 
-            <div className="text-sm text-slate-500">
-              <div>Messages: {messages.length}</div>
-              <div className="text-xs">
-                Mode: {autoSubmit ? "🚀 Auto" : "✋ Manual"}
+              <div className="text-sm text-slate-500">
+                <div>Messages: {messages.length}</div>
               </div>
             </div>
           </div>
-
-          {feedback && (
-            <div className="mt-2 border rounded p-3 bg-yellow-50">
-              <h3 className="font-semibold">Session Feedback</h3>
-              <pre className="text-sm whitespace-pre-wrap mt-1">{JSON.stringify(feedback, null, 2)}</pre>
-            </div>
-          )}
         </div>
 
-        <footer className="text-xs text-center text-slate-400 mt-4">
-          Make sure your backend is running at <span className="font-mono">http://localhost:5000</span>
-          <div className="mt-1">
-            {autoSubmit 
-              ? "⚡ Auto-submit mode: Transcripts are sent immediately after recording" 
-              : "✋ Manual mode: Review and edit transcripts before sending"}
+        {/* Feedback Sidebar */}
+        {feedback && (
+          <div className="w-96 bg-white rounded-lg shadow-sm p-4 overflow-auto" style={{ maxHeight: 'calc(100vh - 8rem)' }}>
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-lg font-bold text-slate-800">📊 Session Feedback</h2>
+              <button 
+                onClick={() => setFeedback(null)}
+                className="text-slate-400 hover:text-slate-600 text-xl"
+              >
+                ×
+              </button>
+            </div>
+
+            {/* Summary */}
+            <div className="mb-4 p-3 bg-blue-50 rounded-lg border border-blue-200">
+              <p className="text-sm text-blue-800">{feedback.summary}</p>
+            </div>
+
+            {/* Vocabulary Cards */}
+            {feedback.vocabulary && feedback.vocabulary.length > 0 && (
+              <div className="mb-6">
+                <h3 className="text-md font-semibold text-slate-700 mb-3 flex items-center gap-2">
+                  📚 Vocabulary ({feedback.vocabulary.length})
+                </h3>
+                <div className="space-y-3">
+                  {feedback.vocabulary.map((card, idx) => (
+                    <div key={idx} className={`p-3 rounded-lg border ${
+                      card.source === 'llm_uncertain' 
+                        ? 'bg-gradient-to-br from-orange-50 to-red-50 border-orange-300'
+                        : card.context_note
+                        ? 'bg-gradient-to-br from-purple-50 via-blue-50 to-pink-50 border-blue-300 ring-2 ring-blue-200'
+                        : 'bg-gradient-to-br from-purple-50 to-pink-50 border-purple-200'
+                    }`}>
+                      <div className="flex items-start justify-between mb-2">
+                        <div className="font-medium text-slate-800">{card.original_text}</div>
+                        <div className="flex gap-1">
+                          {card.context_note && (
+                            <span className="text-xs px-2 py-1 rounded-full bg-blue-100 text-blue-700 animate-pulse">
+                              📝 也在句子中
+                            </span>
+                          )}
+                          <span className={`text-xs px-2 py-1 rounded-full ${
+                            card.source === 'dictionary' 
+                              ? 'bg-green-100 text-green-700' 
+                              : card.source === 'llm_uncertain'
+                              ? 'bg-orange-100 text-orange-700'
+                              : 'bg-blue-100 text-blue-700'
+                          }`}>
+                            {card.source === 'dictionary' ? '📖 字典' : card.source === 'llm_uncertain' ? '⚠️ 不确定' : '🤖 AI'}
+                          </span>
+                        </div>
+                      </div>
+                      <div className="text-xs text-slate-500 mb-1">字面意思 (Literal meaning):</div>
+                      <div className="text-2xl font-bold text-purple-700 mb-1">
+                        {card.mandarin_text}
+                      </div>
+                      <div className="text-sm text-purple-600 mb-2">
+                        {card.pinyin}
+                      </div>
+                      {card.context_note && (
+                        <div className="text-xs text-blue-700 bg-blue-100/70 p-2 rounded mb-2 border border-blue-300">
+                          {card.context_note}
+                        </div>
+                      )}
+                      {card.example_sentence && !card.context_note && (
+                        <div className="text-sm text-slate-600 bg-white/50 p-2 rounded">
+                          💬 {card.example_sentence}
+                        </div>
+                      )}
+                      <div className="flex gap-2 mt-2">
+                        {card.difficulty_level && card.difficulty_level !== 'Unknown' && (
+                          <span className="text-xs px-2 py-1 bg-white/70 rounded text-slate-600">
+                            {card.difficulty_level}
+                          </span>
+                        )}
+                        <span className="text-xs px-2 py-1 bg-white/70 rounded text-slate-600">
+                          {card.type}
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Sentence Corrections */}
+            {feedback.corrections && feedback.corrections.length > 0 && (
+              <div>
+                <h3 className="text-md font-semibold text-slate-700 mb-3 flex items-center gap-2">
+                  ✏️ 句子修正 Corrections ({feedback.corrections.length})
+                </h3>
+                <div className="space-y-3">
+                  {feedback.corrections.map((corr, idx) => (
+                    <div key={idx} className="p-3 bg-gradient-to-br from-yellow-50 to-orange-50 rounded-lg border border-yellow-200">
+                      <div className="text-xs text-yellow-700 font-semibold mb-1">你说的 (What you said):</div>
+                      <div className="text-sm text-slate-600 mb-3 line-through opacity-70">
+                        {corr.original_sentence}
+                      </div>
+                      <div className="text-xs text-green-700 font-semibold mb-1">更自然的说法 (Natural way):</div>
+                      <div className="text-base font-medium text-slate-800 mb-2">
+                        {corr.corrected_sentence}
+                      </div>
+                      {corr.explanation && (
+                        <div className="text-sm text-orange-700 bg-white/50 p-2 rounded">
+                          💡 {corr.explanation}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                    </div>
+              </div>
+            )}
+
+            {/* Empty State */}
+            {(!feedback.vocabulary || feedback.vocabulary.length === 0) && 
+             (!feedback.corrections || feedback.corrections.length === 0) && (
+              <div className="text-center text-slate-400 py-8">
+                No feedback items to display
+              </div>
+            )}
           </div>
-        </footer>
+        )}
       </main>
     </div>
   );
