@@ -45,10 +45,3 @@ class PhraseExtractor:
 
         return final
 
-# --- Temporary Test Block ---
-# if __name__ == '__main__':
-#     test_text = "I went to the store to buy a new computer, but they only had cheap food."
-#     phrases = PhraseExtractor.extract_phrases(test_text)
-#     # Expected output includes: computer, new computer, cheap food, food, I, went, buy, had, only...
-#     print(f"Input: {test_text}")
-#     print(f"Extracted English: {phrases}")
