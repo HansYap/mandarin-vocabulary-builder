@@ -302,7 +302,7 @@ export default function App() {
       
     } catch (e) {
       console.error("❌ startRecording error:", e);
-      setError("无法开启麦克风: " + (e.message || e));
+      setError("无法开启麦克风:  (Please enable microphone usage for browser)" + (e.message || e));
     }
   }
 
