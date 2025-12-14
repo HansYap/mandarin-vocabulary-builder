@@ -235,6 +235,12 @@ export default function App() {
     setError(null);
     setLiveTranscript("");
     setPendingTranscript(null);
+
+    // Stop any playing TTS audio to avoid feedback loop
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current.currentTime = 0;
+    }
     
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
       setError("浏览器不支持麦克风访问");
@@ -302,7 +308,7 @@ export default function App() {
       
     } catch (e) {
       console.error("❌ startRecording error:", e);
-      setError("无法开启麦克风:  (Please enable microphone usage for browser)" + (e.message || e));
+      setError("无法开启麦克风:  (Please enable microphone usage for browser if not enabled) " + (e.message || e));
     }
   }
 
@@ -644,7 +650,7 @@ export default function App() {
             {feedback.vocabulary && feedback.vocabulary.length > 0 && (
               <div className="mb-6">
                 <h3 className="text-md font-semibold text-slate-700 mb-3 flex items-center gap-2">
-                  📚 Vocabulary ({feedback.vocabulary.length})
+                  📚 Vocabulary / Literal Translation ({feedback.vocabulary.length})
                 </h3>
                 <div className="space-y-3">
                   {feedback.vocabulary.map((card, idx) => (
@@ -711,7 +717,7 @@ export default function App() {
             {feedback.corrections && feedback.corrections.length > 0 && (
               <div>
                 <h3 className="text-md font-semibold text-slate-700 mb-3 flex items-center gap-2">
-                  ✏️ 句子修正 Corrections ({feedback.corrections.length})
+                  ✏️ Corrections given context of surrounding words ({feedback.corrections.length})
                 </h3>
                 <div className="space-y-3">
                   {feedback.corrections.map((corr, idx) => (
