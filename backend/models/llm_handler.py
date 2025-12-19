@@ -260,12 +260,41 @@ class LLMHandler:
             
             # Verify it exists in corrected sentence
             if candidate in corrected_sentence:
-                # Check if it's in dictionary (strong signal)
-                if candidate in self.dictionary:
-                    print(f"[EXTRACT] ✅ Found in dictionary: '{candidate}'")
-                    return candidate
+                # Strategy: Try different substrings, PRIORITIZING LONGER MATCHES
+                # This handles cases like "柴来点" where we want "火柴" not just "柴"
                 
-                # Not in dictionary but reasonable length
+                best_match = None
+                best_length = 0
+                
+                # First, try to find matches in the corrected sentence near this position
+                # Look for 2-4 character words that include our candidate chars
+                for window_size in [4, 3, 2]:
+                    for i in range(len(corrected_chars) - window_size + 1):
+                        window = ''.join(corrected_chars[i:i+window_size])
+                        # Check if this window contains any of our new chars and is in dict
+                        if any(c in window for c in new_chars_in_range) and window in self.dictionary:
+                            # Prefer longer matches
+                            if len(window) > best_length:
+                                best_match = window
+                                best_length = len(window)
+                                print(f"[EXTRACT] Found candidate in context: '{window}' (length {len(window)})")
+                
+                if best_match:
+                    print(f"[EXTRACT] ✅ Best match from context: '{best_match}'")
+                    return best_match
+                
+                # Fallback: Try substrings of the candidate itself
+                # But still prioritize longer matches
+                for length in range(len(candidate), 0, -1):  # Longest to shortest
+                    for start_pos in range(len(candidate) - length + 1):
+                        substring = candidate[start_pos:start_pos + length]
+                        if substring in self.dictionary:
+                            # Additional check: prefer 2+ char words over single chars
+                            if len(substring) >= 2 or best_length == 0:
+                                print(f"[EXTRACT] ✅ Found substring in dict: '{substring}' (from '{candidate}')")
+                                return substring
+                
+                # If no dictionary match found, return the full candidate if reasonable length
                 if 1 <= len(candidate) <= 3:
                     print(f"[EXTRACT] ⚠️  Not in dict but reasonable: '{candidate}'")
                     return candidate
@@ -307,10 +336,11 @@ class LLMHandler:
 Chinese Sentence: {corrected_sentence}
 English Word: {english_word}
 
-Output ONLY the matching Chinese word from the sentence. No explanation.
+Output ONLY the base Chinese word (without grammar particles like 了/的/吗).
 Examples:
 - If asked for "book" in "我想预订一间房", output: 预订
-- If asked for "book" in "我想读一本书", output: 书"""
+- If asked for "book" in "我想读一本书", output: 书
+- If asked for "fine" in "因为违停被罚款了", output: 罚款 (not 罚款了)"""
 
         try:
             response = requests.post(
@@ -329,6 +359,16 @@ Examples:
             
             # Sanity check: should be 1-4 characters typically
             if cleaned and 1 <= len(cleaned) <= 5:
+                # Remove common grammar particles if present
+                grammar_particles = ['了', '的', '吗', '呢', '啊', '吧']
+                for particle in grammar_particles:
+                    if cleaned.endswith(particle) and len(cleaned) > 1:
+                        cleaned_without = cleaned[:-1]
+                        # Check if the version without particle is in dictionary
+                        if cleaned_without in self.dictionary:
+                            print(f"[LLM-EXTRACT] ✅ Removed particle '{particle}': '{cleaned_without}'")
+                            return cleaned_without
+                
                 print(f"[LLM-EXTRACT] ✅ Identified: '{cleaned}'")
                 return cleaned
             
@@ -416,31 +456,66 @@ Output format (JSON only):
         Returns: { "corrected": "...", "note": "..." }
         """
         prompt = f"""You are a professional Chinese tutor. Rewrite this sentence into natural Mandarin.
-Output a single JSON object ONLY with keys:
-- "corrected": the corrected Mandarin sentence (one sentence, concise)
-- "note": a one-line note explaining the main fix (or "" if none)
 
 User sentence: "{broken_sentence}"
 
 Rules:
-- Output JSON only, no markdown
-- Keep corrected sentence short and natural
-- Note should be 1 short phrase at most"""
+1. Output ONLY a JSON object with exactly these keys: "corrected" and "note"
+2. The "corrected" key contains the corrected Mandarin sentence (one sentence)
+3. The "note" key contains a brief explanation (or empty string "")
+4. Do NOT include any markdown formatting, backticks, or extra text
+5. Do NOT include line breaks inside the JSON
+6. IMPORTANT: Keep existing Chinese words and measure words (一根/一本/一个/etc) unchanged when they are correct. Only translate the English words.
 
-        response = requests.post(
-            self.ollama_url,
-            json={
-                "model": self.model,
-                "prompt": prompt,
-                "temperature": 0.2,
-                "top_p": 0.9,
-                "stream": False
+Example: 
+- Input: "我需要一根 match 点火"
+- Output: {{"corrected": "我需要一根火柴点火", "note": ""}}
+- (Keep "一根" because it indicates a stick-like object)
+
+Now correct the sentence:"""
+
+        try:
+            response = requests.post(
+                self.ollama_url,
+                json={
+                    "model": self.model,
+                    "prompt": prompt,
+                    "temperature": 0.2,
+                    "top_p": 0.9,
+                    "stream": False
+                }
+            )
+
+            raw = self._safe_parse_response(response).strip()
+            
+            # More aggressive cleaning for JSON output
+            # Remove all whitespace/newlines that might break JSON
+            raw = ' '.join(raw.split())
+            
+            parsed = self._parse_json_or_fallback(raw)
+            
+            # Additional validation: ensure we got actual content, not JSON structure
+            if isinstance(parsed.get('corrected'), str):
+                # Check if the correction contains JSON artifacts
+                corrected = parsed['corrected']
+                if '{' in corrected or '"corrected"' in corrected:
+                    print(f"[WARN] Detected JSON in correction, extracting...")
+                    # Try to extract just the corrected sentence
+                    # Pattern: look for Chinese content between quotes
+                    match = re.search(r'[""]([^"""]+)[""]', corrected)
+                    if match:
+                        corrected = match.group(1)
+                        parsed['corrected'] = corrected
+                        print(f"[WARN] Extracted: '{corrected}'")
+            
+            return parsed
+            
+        except Exception as e:
+            print(f"[ERROR] Correction failed: {e}")
+            return {
+                "corrected": broken_sentence,
+                "note": f"Error: {str(e)}"
             }
-        )
-
-        raw = self._safe_parse_response(response).strip()
-        parsed = self._parse_json_or_fallback(raw)
-        return parsed
 
     # -------------------------------------------------------
     # HELPERS
