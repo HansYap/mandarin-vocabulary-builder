@@ -12,8 +12,8 @@ socketio = SocketIO(
 
 def create_app():
     app = Flask(__name__)
-    #CORS(app, origins=["http://127.0.0.1:5173", "http://localhost:5173"])
-    CORS(app, origins=["https://frontend-tutor-mvp.vercel.app"])
+    CORS(app, origins=["http://127.0.0.1:5173", "http://localhost:5173", "https://frontend-tutor-mvp.vercel.app"])
+    #CORS(app, origins=["https://frontend-tutor-mvp.vercel.app"])
     
     from .api.chat import chat_bp
     from .api.session import session_bp
