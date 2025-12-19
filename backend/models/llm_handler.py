@@ -271,13 +271,20 @@ class LLMHandler:
                 for window_size in [4, 3, 2]:
                     for i in range(len(corrected_chars) - window_size + 1):
                         window = ''.join(corrected_chars[i:i+window_size])
-                        # Check if this window contains any of our new chars and is in dict
-                        if any(c in window for c in new_chars_in_range) and window in self.dictionary:
-                            # Prefer longer matches
-                            if len(window) > best_length:
+                        
+                        # Count how many of our new chars are in this window
+                        chars_in_window = sum(1 for c in new_chars_in_range if c in window)
+                        coverage = chars_in_window / len(new_chars_in_range)
+                        
+                        # Require at least 70% coverage (for 3 chars, need at least 2)
+                        # AND the window must be in dictionary
+                        if coverage >= 0.7 and window in self.dictionary:
+                            # Prefer longer matches with better coverage
+                            score = len(window) * coverage
+                            if score > best_length:
                                 best_match = window
-                                best_length = len(window)
-                                print(f"[EXTRACT] Found candidate in context: '{window}' (length {len(window)})")
+                                best_length = score
+                                print(f"[EXTRACT] Found candidate: '{window}' (size={len(window)}, coverage={coverage:.1%}, score={score:.1f})")
                 
                 if best_match:
                     print(f"[EXTRACT] ✅ Best match from context: '{best_match}'")
@@ -457,22 +464,37 @@ Output format (JSON only):
         """
         prompt = f"""You are a professional Chinese tutor. Rewrite this sentence into natural Mandarin.
 
-User sentence: "{broken_sentence}"
+CRITICAL RULES:
+1. Understand context to choose correct translation for ambiguous words
+2. Keep measure words (一根/一本/一个) - they indicate object type  
+3. Translate compound phrases as complete units
+4. Output ONLY JSON: {{"corrected": "...", "note": "..."}}
 
-Rules:
-1. Output ONLY a JSON object with exactly these keys: "corrected" and "note"
-2. The "corrected" key contains the corrected Mandarin sentence (one sentence)
-3. The "note" key contains a brief explanation (or empty string "")
-4. Do NOT include any markdown formatting, backticks, or extra text
-5. Do NOT include line breaks inside the JSON
-6. IMPORTANT: Keep existing Chinese words and measure words (一根/一本/一个/etc) unchanged when they are correct. Only translate the English words.
+EXAMPLES OF CONTEXT-DEPENDENT TRANSLATION:
+Input: "我需要一根 match 点火"
+Output: {{"corrected": "我需要一根火柴点火", "note": ""}}
+Why: 一根 + 点火 → stick for lighting → 火柴 (matchstick)
 
-Example: 
-- Input: "我需要一根 match 点火"
-- Output: {{"corrected": "我需要一根火柴点火", "note": ""}}
-- (Keep "一根" because it indicates a stick-like object)
+Input: "昨晚的 match 太精彩了"
+Output: {{"corrected": "昨晚的比赛太精彩了", "note": ""}}
+Why: 昨晚 + 精彩 → sports event → 比赛 (match/game)
 
-Now correct the sentence:"""
+Input: "他在 chemical plant 工作"
+Output: {{"corrected": "他在化工厂工作", "note": ""}}
+Why: compound phrase "chemical plant" = 化工厂 (complete unit)
+
+Input: "我是周杰伦的忠实 fan"
+Output: {{"corrected": "我是周杰伦的忠实粉丝", "note": ""}}
+Why: person's fan → 粉丝
+
+Input: "房间太热，打开 fan"
+Output: {{"corrected": "房间太热，打开风扇", "note": ""}}
+Why: cooling device → 风扇 (electric fan)
+
+NOW CORRECT (use context clues):
+"{broken_sentence}"
+
+Output (JSON only):"""
 
         try:
             response = requests.post(
