@@ -7,7 +7,6 @@ import os
 class LLMHandler:
     def __init__(self, dict_path="../data/cc-cedict.txt"):
         # 1. Load Dictionary (Fast & Deterministic)
-        # Path is relative to backend/models/ directory
         self.dictionary = self._load_cedict(dict_path)
         
         # 2. LLM Config
@@ -15,10 +14,9 @@ class LLMHandler:
         self.model = "qwen2.5:1.5b"
 
     # -------------------------------------------------------
-    # DICTIONARY LOADING (From Version 1)
+    # DICTIONARY LOADING
     # -------------------------------------------------------
     def _load_cedict(self, path):
-        # Resolve path relative to this file's location
         current_dir = os.path.dirname(os.path.abspath(__file__))
         full_path = os.path.join(current_dir, path)
         
@@ -30,67 +28,54 @@ class LLMHandler:
         cedict = {}
         with open(full_path, 'r', encoding='utf-8') as f:
             for line in f:
-                # Skip comments (lines starting with #) and empty lines
                 if line.startswith('#') or line.startswith('%') or not line.strip(): 
                     continue
                 
-                # Line format: Traditional Simplified [pin1 yin1] /meaning1/meaning2/
-                # Example: 你好 你好 [ni3 hao3] /hello/hi/how are you/
                 try:
-                    # Find the bracket positions first
                     bracket_start = line.find('[')
                     bracket_end = line.find(']')
-                    
-                    if bracket_start == -1 or bracket_end == -1:
+                    if bracket_start == -1 or bracket_end == -1: 
                         continue
                     
-                    # Extract parts before brackets (Traditional and Simplified)
-                    before_bracket = line[:bracket_start].strip().split()
-                    if len(before_bracket) < 2:
+                    parts = line[:bracket_start].strip().split()
+                    if len(parts) < 2: 
                         continue
                     
-                    traditional = before_bracket[0]
-                    simplified = before_bracket[1]
-                    
-                    # Extract Pinyin (between brackets)
+                    traditional = parts[0]
+                    simplified = parts[1]
                     pinyin = line[bracket_start+1:bracket_end].strip()
                     
-                    # Extract English meanings (after bracket, between /)
-                    after_bracket = line[bracket_end+1:].strip()
-                    if not after_bracket.startswith('/'):
-                        continue
-                    
-                    meanings_raw = after_bracket.strip('/')
+                    meanings_raw = line[bracket_end+1:].strip().strip('/')
                     meanings = [m.strip() for m in meanings_raw.split('/') if m.strip()]
                     
-                    # Map English words/phrases to Chinese info
-                    for m in meanings:
-                        clean_key = m.lower().strip()
-                        # Only save if not already there (keep most common/first entry)
-                        if clean_key and clean_key not in cedict:
-                            cedict[clean_key] = {
-                                "word": clean_key,
-                                "translation": simplified,
-                                "pinyin": pinyin,
-                                "alternatives": [traditional] if traditional != simplified else [],
-                                "example": ""
-                            }
-                except Exception as e:
-                    # Silently skip malformed lines
+                    entry = {
+                        "simplified": simplified,
+                        "traditional": traditional,
+                        "pinyin": pinyin,
+                        "definitions": meanings
+                    }
+
+                    # Index by simplified Chinese (primary key)
+                    if simplified not in cedict:
+                        cedict[simplified] = entry
+                    
+                    # Also index by traditional (for lookup flexibility)
+                    if traditional != simplified and traditional not in cedict:
+                        cedict[traditional] = entry
+
+                except Exception:
                     continue
         
         print(f"Dictionary loaded: {len(cedict)} entries.")
         return cedict
 
     # -------------------------------------------------------
-    # PUBLIC: Get Response (From Version 2 - Better Prompts)
+    # PUBLIC: Get Response (Conversation)
     # -------------------------------------------------------
     def get_response(self, user_message, conversation_history):
         try:
-            # Build formatted conversation history
             context = self._build_context(conversation_history)
 
-            # System prompt optimized for Qwen 2.5 (Version 2)
             system_prompt = (
                 "<system>"
                 "你是一位温柔、友善的中文会话老师。"
@@ -105,7 +90,6 @@ class LLMHandler:
                 "</system>"
             )
 
-            # Final formatted prompt for Qwen
             prompt = (
                 f"{system_prompt}\n"
                 f"<conversation>\n"
@@ -114,13 +98,12 @@ class LLMHandler:
                 f"<assistant>"
             )
 
-            # Call Ollama
             response = requests.post(
                 self.ollama_url,
                 json={
                     "model": self.model,
                     "prompt": prompt,
-                    "temperature": 0.6,   # Version 2's setting
+                    "temperature": 0.6,
                     "top_p": 0.9,
                     "stream": False
                 }
@@ -129,10 +112,8 @@ class LLMHandler:
             if response.status_code != 200:
                 return "抱歉，我好像遇到一点问题，你可以再说一次吗？"
 
-            # Parse Ollama response safely (Version 2)
             result_text = self._safe_parse_response(response).strip()
 
-            # Ensure Chinese-only output
             if not self._looks_like_mandarin(result_text):
                 result_text = "我再说一遍：" + result_text
 
@@ -143,90 +124,308 @@ class LLMHandler:
             return "系统好像连不上，你可以再试一次吗？"
 
     # -------------------------------------------------------
-    # PUBLIC: Suggest Phrase (Hybrid: Dictionary First, Then LLM)
+    # PUBLIC: Suggest Phrase (FIXED VERSION)
     # -------------------------------------------------------
-    def suggest_phrase(self, english_phrase, sentence_context):
+    def suggest_phrase(self, english_phrase, original_sentence, corrected_sentence):
         """
-        HYBRID APPROACH:
-        1. Check Dictionary (Instant, 100% Correct)
-        2. If not found, ask LLM (Slower, Creative)
-        """
-        clean_phrase = english_phrase.lower().strip()
+        IMPROVED PIPELINE (Context-First Approach):
+        1. Use the ALREADY corrected sentence (from feedback_gen.py)
+        2. Extract which Chinese word corresponds to the English phrase
+        3. Look up that Chinese word in dictionary for accurate pinyin/definitions
+        4. Fallback to LLM-only if dictionary lookup fails
         
-        # --- PATH A: Dictionary (Fast & Deterministic) ---
-        if clean_phrase in self.dictionary:
-            result = self.dictionary[clean_phrase].copy()
-            result["source"] = "dictionary"
-            
-            # Print dictionary lookup info
-            print(f"[DICT] '{english_phrase}' → {result['translation']} [{result['pinyin']}]")
-            
-            # Dictionary doesn't have examples, but we can keep it simple
-            # or optionally ask LLM just for an example (commented out for speed)
-            return result
-
-        # --- PATH B: LLM Fallback (Creative, handles slang/context) ---
-        print(f"[LLM] '{english_phrase}' not in dictionary, using LLM...")
-        return self._suggest_phrase_llm(english_phrase, sentence_context)
-
-    def _suggest_phrase_llm(self, english_phrase, sentence_context):
+        Args:
+            english_phrase: The English word to translate (e.g., "book")
+            original_sentence: The mixed sentence (e.g., "我想book一间房")
+            corrected_sentence: The fully Chinese sentence (e.g., "我想预订一间房")
         """
-        Use Version 2's improved prompt for LLM suggestions.
-        """
-        prompt = f"""You are a concise professional Chinese teacher. For the given English phrase and sentence context,
-output a single JSON object ONLY (no extra text). The JSON keys must be exactly:
-- "word": the original english phrase,
-- "translation": a short, natural Mandarin word/phrase (max 4 chars if single word),
-- "alternatives": an array of up to 2 simpler/colloquial alternatives (can be empty []),
-- "example": one short example sentence (MAX 12 Chinese characters preferred) showing usage.
+        print(f"\n{'='*60}")
+        print(f"[VOCAB] Analyzing '{english_phrase}'")
+        print(f"[VOCAB] Original: '{original_sentence}'")
+        print(f"[VOCAB] Corrected: '{corrected_sentence}'")
+        print(f"{'='*60}")
 
-User sentence: "{sentence_context}"
-English phrase: "{english_phrase}"
-
-Rules:
-- Output JSON only, no explanation or extra text.
-- Keep fields short and natural.
-- Prefer modern, commonly used Mandarin (avoid archaic words).
-- If you cannot confidently translate, put empty strings or [].
-
-Return the single JSON object."""
-
-        response = requests.post(
-            self.ollama_url,
-            json={
-                "model": self.model,
-                "prompt": prompt,
-                "temperature": 0.2,
-                "top_p": 0.9,
-                "stream": False
-            }
+        # Step 1: Identify which Chinese word replaced the English phrase
+        chinese_term = self._extract_chinese_equivalent(
+            english_phrase, 
+            original_sentence, 
+            corrected_sentence
         )
+        
+        if not chinese_term:
+            print(f"[WARN] Could not identify Chinese equivalent for '{english_phrase}'")
+            return self._generate_llm_only_fallback(english_phrase, corrected_sentence)
+        
+        print(f"[EXTRACTED] '{english_phrase}' → '{chinese_term}'")
+        
+        # Step 2: Dictionary lookup for pinyin and definitions
+        dict_entry = self.dictionary.get(chinese_term)
+        
+        if dict_entry:
+            print(f"[DICT] ✅ Found '{chinese_term}' in dictionary")
+            return self._format_dictionary_entry(
+                english_phrase, 
+                dict_entry, 
+                corrected_sentence,
+                source="hybrid"
+            )
+        
+        # Step 3: Fallback - use LLM translation but note it's less reliable
+        print(f"[FALLBACK] '{chinese_term}' not in dictionary, using LLM-only")
+        return {
+            "word": english_phrase,
+            "translation": chinese_term,
+            "pinyin": "(推测发音)",
+            "alternatives": "",
+            "example": f"在这句话中: {corrected_sentence}",
+            "chinese_term": chinese_term,
+            "source": "llm_fallback"
+        }
 
-        raw = self._safe_parse_response(response).strip()
-        parsed = self._parse_json_or_fallback(raw)
-        parsed["source"] = "llm"
-        return parsed
+    def _extract_chinese_equivalent(self, english_word, original_sentence, corrected_sentence):
+        """
+        Identifies which Chinese word in the corrected sentence corresponds 
+        to the English word in the original sentence.
+        
+        Strategy: 
+        1. Find position of English word in original
+        2. Find what changed NEAR that position (the "local diff")
+        3. The new Chinese characters near that position are the translation
+        """
+        # Find position of English word in original
+        eng_pos = original_sentence.lower().find(english_word.lower())
+        if eng_pos == -1:
+            print(f"[WARN] English word '{english_word}' not found in original sentence")
+            return self._extract_via_llm(english_word, corrected_sentence)
+        
+        eng_end = eng_pos + len(english_word)
+        
+        print(f"[EXTRACT] English word '{english_word}' at position {eng_pos}-{eng_end}")
+        
+        # Get Chinese characters before the English word
+        prefix = original_sentence[:eng_pos]
+        chinese_chars_before = sum(1 for c in prefix if '\u4e00' <= c <= '\u9fff')
+        
+        # Get Chinese characters after the English word (for range calculation)
+        suffix = original_sentence[eng_end:]
+        chinese_chars_after = sum(1 for c in suffix if '\u4e00' <= c <= '\u9fff')
+        
+        print(f"[EXTRACT] Chinese chars: {chinese_chars_before} before, {chinese_chars_after} after")
+        
+        # Strategy 1: Find the "local diff" - what's new NEAR the English word position?
+        original_chars = [c for c in original_sentence if '\u4e00' <= c <= '\u9fff']
+        corrected_chars = [c for c in corrected_sentence if '\u4e00' <= c <= '\u9fff']
+        
+        print(f"[EXTRACT] Original Chinese: {original_chars}")
+        print(f"[EXTRACT] Corrected Chinese: {corrected_chars}")
+        
+        # Calculate expected position range in corrected sentence
+        # (The translation should appear around where the English word was)
+        expected_start = max(0, chinese_chars_before - 1)  # Allow 1 char before
+        expected_end = min(len(corrected_chars), chinese_chars_before + 4)  # Allow up to 4 chars
+        
+        print(f"[EXTRACT] Expected translation position: {expected_start}-{expected_end}")
+        
+        # Find new characters in that range
+        new_chars_in_range = []
+        used_original_indices = set()
+        
+        for i in range(expected_start, expected_end):
+            if i >= len(corrected_chars):
+                break
+                
+            corrected_char = corrected_chars[i]
+            
+            # Check if this char existed in original at roughly the same position
+            found_in_original = False
+            search_range = range(max(0, i - 2), min(len(original_chars), i + 3))
+            
+            for j in search_range:
+                if j in used_original_indices:
+                    continue
+                if j < len(original_chars) and corrected_char == original_chars[j]:
+                    used_original_indices.add(j)
+                    found_in_original = True
+                    break
+            
+            if not found_in_original:
+                new_chars_in_range.append(corrected_char)
+        
+        print(f"[EXTRACT] New characters in range: {new_chars_in_range}")
+        
+        # Build candidate from new characters in range
+        if new_chars_in_range:
+            candidate = ''.join(new_chars_in_range)
+            print(f"[EXTRACT] Local diff candidate: '{candidate}'")
+            
+            # Verify it exists in corrected sentence
+            if candidate in corrected_sentence:
+                # Check if it's in dictionary (strong signal)
+                if candidate in self.dictionary:
+                    print(f"[EXTRACT] ✅ Found in dictionary: '{candidate}'")
+                    return candidate
+                
+                # Not in dictionary but reasonable length
+                if 1 <= len(candidate) <= 3:
+                    print(f"[EXTRACT] ⚠️  Not in dict but reasonable: '{candidate}'")
+                    return candidate
+        
+        # Strategy 2: Position-based lookup with dictionary validation
+        print(f"[EXTRACT] Trying position-based lookup at {chinese_chars_before}")
+        
+        if 0 <= chinese_chars_before < len(corrected_chars):
+            # Try multi-character words first (prefer dictionary matches)
+            for length in [3, 2, 1]:
+                if chinese_chars_before + length <= len(corrected_chars):
+                    candidate = ''.join(corrected_chars[chinese_chars_before:chinese_chars_before + length])
+                    if candidate in self.dictionary:
+                        print(f"[EXTRACT] ✅ Position-based match in dict: '{candidate}'")
+                        return candidate
+            
+            # Single character fallback
+            candidate = corrected_chars[chinese_chars_before]
+            if candidate in self.dictionary:
+                print(f"[EXTRACT] ✅ Single char in dict: '{candidate}'")
+                return candidate
+            else:
+                print(f"[EXTRACT] ⚠️  Single char not in dict: '{candidate}'")
+                return candidate
+        
+        # Strategy 3: Ask LLM
+        print("[EXTRACT] All heuristics failed, asking LLM...")
+        return self._extract_via_llm(english_word, corrected_sentence)
+
+    def _extract_via_llm(self, english_word, corrected_sentence):
+        """
+        Ask LLM directly: "Which Chinese word in this sentence means [english_word]?"
+        This is more reliable than position heuristics for complex cases.
+        """
+        print(f"[LLM-EXTRACT] Asking LLM to identify '{english_word}' in '{corrected_sentence}'")
+        
+        prompt = f"""Task: Identify the Chinese word that means "{english_word}"
+
+Chinese Sentence: {corrected_sentence}
+English Word: {english_word}
+
+Output ONLY the matching Chinese word from the sentence. No explanation.
+Examples:
+- If asked for "book" in "我想预订一间房", output: 预订
+- If asked for "book" in "我想读一本书", output: 书"""
+
+        try:
+            response = requests.post(
+                self.ollama_url,
+                json={
+                    "model": self.model,
+                    "prompt": prompt,
+                    "temperature": 0.1,
+                    "stream": False
+                }
+            )
+            
+            raw = self._safe_parse_response(response).strip()
+            # Extract only Chinese characters
+            cleaned = re.sub(r'[^\u4e00-\u9fff]', '', raw)
+            
+            # Sanity check: should be 1-4 characters typically
+            if cleaned and 1 <= len(cleaned) <= 5:
+                print(f"[LLM-EXTRACT] ✅ Identified: '{cleaned}'")
+                return cleaned
+            
+            print(f"[LLM-EXTRACT] ❌ Invalid result: '{raw}'")
+            return None
+            
+        except Exception as e:
+            print(f"[LLM-EXTRACT] ❌ Error: {e}")
+            return None
+
+    def _format_dictionary_entry(self, original_word, dict_entry, context_sentence, source):
+        """
+        Formats a dictionary entry into the expected VocabCard structure.
+        """
+        definitions = dict_entry.get('definitions', [])
+        definition_text = " / ".join(definitions[:3])  # Limit to top 3 definitions
+        
+        return {
+            "word": original_word,
+            "translation": dict_entry['simplified'],
+            "pinyin": dict_entry['pinyin'],
+            "alternatives": dict_entry.get('traditional', dict_entry['simplified']),
+            "example": f"释义: {definition_text}\n例句: {context_sentence}",
+            "chinese_term": dict_entry['simplified'],
+            "source": source
+        }
+
+    def _generate_llm_only_fallback(self, english_word, context):
+        """
+        Pure LLM fallback when all else fails.
+        Used for slang, proper nouns, or when extraction fails.
+        """
+        print(f"[FALLBACK] Generating pure LLM explanation for '{english_word}'")
+        
+        prompt = f"""Translate this word into Chinese based on the context:
+
+Context: {context}
+Word: {english_word}
+
+Output format (JSON only):
+{{"chinese": "中文翻译", "pinyin": "pin yin", "note": "simple explanation"}}"""
+
+        try:
+            response = requests.post(
+                self.ollama_url,
+                json={
+                    "model": self.model,
+                    "prompt": prompt,
+                    "temperature": 0.2,
+                    "stream": False
+                }
+            )
+            
+            raw = self._safe_parse_response(response).strip()
+            result = self._parse_json_or_fallback(raw)
+            
+            return {
+                "word": english_word,
+                "translation": result.get("chinese", english_word),
+                "pinyin": result.get("pinyin", "(未知)"),
+                "alternatives": "",
+                "example": result.get("note", "LLM生成的翻译"),
+                "chinese_term": result.get("chinese", english_word),
+                "source": "llm_fallback"
+            }
+            
+        except Exception as e:
+            print(f"[FALLBACK] ❌ Error: {e}")
+            return {
+                "word": english_word,
+                "translation": english_word,
+                "pinyin": "(错误)",
+                "alternatives": "",
+                "example": "无法翻译此词",
+                "chinese_term": english_word,
+                "source": "error"
+            }
 
     # -------------------------------------------------------
-    # PUBLIC: Correct Sentence (New from Version 2)
+    # PUBLIC: Correct Sentence
     # -------------------------------------------------------
     def correct_sentence(self, broken_sentence):
         """
-        Ask Qwen to rewrite the full sentence into natural Mandarin.
-        Return a JSON object:
-        { "corrected": "我只喜欢喝冰水。", "note": "minor word order" }
+        Ask Qwen to rewrite the sentence into natural Mandarin.
+        Returns: { "corrected": "...", "note": "..." }
         """
-        prompt = f"""You are a professional Chinese tutor. Rewrite the following user sentence into one concise, correct Mandarin sentence.
+        prompt = f"""You are a professional Chinese tutor. Rewrite this sentence into natural Mandarin.
 Output a single JSON object ONLY with keys:
-- "corrected": the corrected Mandarin sentence (one sentence, concise),
-- "note": a one-line note (in Chinese) explaining the main fix (or "" if none).
+- "corrected": the corrected Mandarin sentence (one sentence, concise)
+- "note": a one-line note explaining the main fix (or "" if none)
 
 User sentence: "{broken_sentence}"
 
 Rules:
-- Output JSON only.
-- Keep corrected sentence short and natural.
-- Note should be 1 short phrase at most."""
+- Output JSON only, no markdown
+- Keep corrected sentence short and natural
+- Note should be 1 short phrase at most"""
 
         response = requests.post(
             self.ollama_url,
@@ -244,15 +443,12 @@ Rules:
         return parsed
 
     # -------------------------------------------------------
-    # HELPERS (Improved from Version 2)
+    # HELPERS
     # -------------------------------------------------------
     def _build_context(self, history):
-        """
-        Converts conversation history into XML-tag structure.
-        Qwen 2.5 performs best with <user> and <assistant> tags.
-        """
+        """Converts conversation history into XML-tag structure."""
         formatted = []
-        for msg in history[-8:]:  # Keep last 8 messages
+        for msg in history[-8:]:
             if msg["role"] == "user":
                 formatted.append(f"<user>{msg['content']}</user>")
             else:
@@ -260,14 +456,10 @@ Rules:
         return "\n".join(formatted)
 
     def _safe_parse_response(self, response):
-        """
-        Correctly handle Ollama's NDJSON output format.
-        Extracts ALL 'response' fields and joins them.
-        """
+        """Handles Ollama's NDJSON output format."""
         text = response.text.strip()
         final_chunks = []
 
-        # Iterate line by line because Ollama returns NDJSON style
         for line in text.split("\n"):
             try:
                 obj = json.loads(line)
@@ -279,33 +471,24 @@ Rules:
         return "".join(final_chunks).replace("</assistant>", "")
 
     def _looks_like_mandarin(self, text):
-        """
-        Basic check: does output contain Chinese characters?
-        """
+        """Check if output contains Chinese characters."""
         return bool(re.search(r"[\u4e00-\u9fff]", text))
 
     def _parse_json_or_fallback(self, text):
-        """
-        Try to parse JSON from model output, with fallback.
-        """
+        """Try to parse JSON from model output, with fallback."""
         text = text.strip()
-        # Clean up Markdown code blocks if LLM adds them
         text = text.replace("```json", "").replace("```", "")
         
         try:
             return json.loads(text)
         except:
-            # Attempt to extract a JSON-looking substring
             match = re.search(r'\{.*\}', text, re.DOTALL)
             if match:
                 try:
                     return json.loads(match.group(0))
                 except:
                     pass
-            # Ultimate Fallback
             return {
-                "word": "Error",
-                "translation": "",
-                "alternatives": [],
-                "example": text
+                "corrected": text,
+                "note": "解析错误"
             }

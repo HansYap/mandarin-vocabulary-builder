@@ -14,8 +14,9 @@ class FeedbackGenerator:
         """
         Orchestrates the analysis pipeline:
         1. Extract English phrases
-        2. Resolve phrases (Dictionary First -> LLM Fallback)
-        3. Correct full sentences
+        2. Correct sentences with English FIRST
+        3. Resolve phrases using corrected sentences (Dictionary lookup)
+        4. Return vocabulary + corrections
         
         Returns: JSON-serializable dict matching SessionFeedback schema
         """
@@ -26,7 +27,7 @@ class FeedbackGenerator:
         print("="*60 + "\n")
         
         # 1. Identify English phrases & sentences to fix
-        english_phrases = set()
+        english_phrases = []
         sentences_to_fix = []
         
         for idx, turn in enumerate(transcript):
@@ -37,53 +38,81 @@ class FeedbackGenerator:
                 # Collect English phrases
                 phrases = self._extract_english_phrases(text)
                 print(f"[TURN {idx}] Extracted English: {phrases}")
-                english_phrases.update(phrases)
+                for p in phrases:
+                    # Store the association between word and sentence
+                    english_phrases.append((p, text))
                 
                 # If it has English or is mixed, collect for correction
                 if phrases or self._has_mixed_language(text):
                     sentences_to_fix.append(text)
 
-        print(f"\n[PHASE 1] Found {len(english_phrases)} unique English phrases")
+        print(f"\n[PHASE 1] Found {len(english_phrases)} English phrases")
         print(f"[PHASE 1] {len(sentences_to_fix)} sentences need correction\n")
-
-        # 2. Build Vocabulary Cards (The Hybrid Engine)
-        vocab_cards = []
-        for phrase in sorted(english_phrases):  # Sort for consistent output
-            print(f"[VOCAB] Resolving '{phrase}'...")
-            card = self._resolve_phrase(phrase)
-            vocab_cards.append(card)
-
-        print(f"\n[PHASE 2] Created {len(vocab_cards)} vocabulary cards\n")
-
-        # 3. Correct Sentences (last 3 to keep it fast)
+        
+        # 2. Correct all sentences FIRST (build mapping)
         corrections = []
-        corrected_words = {}  # Map: word -> corrected translation in sentence
+        sentence_map = {}  # Original -> Corrected
         
-        for sent in sentences_to_fix[-3:]:
+        for sent in sentences_to_fix[-3:]:  # Last 3 to keep it fast
             print(f"[CORRECTION] Fixing: '{sent}'")
-            correction = self._fix_sentence_llm(sent)
-            if correction:
-                corrections.append(correction)
-                # Extract English words and their contextual Chinese equivalents
-                eng_words = self._extract_english_phrases(sent)
-                for word in eng_words:
-                    corrected_words[word.lower()] = sent  # Store which sentence it appeared in
+            correction_obj = self._fix_sentence_llm(sent)
+            if correction_obj:
+                corrections.append(correction_obj)
+                sentence_map[sent] = correction_obj.corrected_sentence
 
-        print(f"\n[PHASE 3] Generated {len(corrections)} corrections\n")
+        print(f"\n[PHASE 2] Generated {len(corrections)} corrections")
+        print(f"[PHASE 2] Sentence map: {sentence_map}\n")
+
+        # 3. Build Vocabulary Cards using corrected sentences
+        vocab_cards = []
+        seen_translations = set()  # Deduplicate by English word + Chinese translation
         
-        # Annotate vocabulary cards that also appear in corrections
+        for phrase, original_context in english_phrases:
+            # Get the corrected version of this sentence
+            corrected_context = sentence_map.get(original_context)
+            
+            if not corrected_context:
+                print(f"[VOCAB] No correction found for '{original_context}', skipping")
+                continue
+            
+            # Create a unique key: "english_word|corrected_sentence"
+            # This allows same English word to have different translations in different contexts
+            dedup_key = f"{phrase.lower()}|{corrected_context}"
+            
+            # Skip if we've already processed this exact combination
+            if dedup_key in seen_translations:
+                print(f"[VOCAB] Skipping duplicate '{phrase}' in same context")
+                continue
+            seen_translations.add(dedup_key)
+            
+            # Get the corrected version of this sentence (already retrieved above)
+            print(f"[VOCAB] Resolving '{phrase}'")
+            print(f"       Original: {original_context}")
+            print(f"       Corrected: {corrected_context}")
+            
+            # Now call suggest_phrase with BOTH sentences
+            card = self._resolve_phrase(phrase, original_context, corrected_context)
+            if card:
+                vocab_cards.append(card)
+
+        print(f"\n[PHASE 3] Created {len(vocab_cards)} vocabulary cards\n")
+
+        # 4. Annotate vocabulary cards that appear in corrections
+        corrected_words = set()
+        for sent in sentences_to_fix[-3:]:
+            eng_words = self._extract_english_phrases(sent)
+            for word in eng_words:
+                corrected_words.add(word.lower())
+
         for card in vocab_cards:
             word_lower = card.original_text.lower()
             if word_lower in corrected_words:
-                # Add context note to vocabulary card
                 card.context_note = f"💡 在句子中更自然的说法请看下方「句子修正」"
-                print(f"[ANNOTATE] '{card.original_text}' appears in both - adding context note")
+                print(f"[ANNOTATE] '{card.original_text}' appears in corrections")
 
-        print(f"[FILTER] Annotated {sum(1 for c in vocab_cards if c.context_note)} cards with context notes")
-
-        # 4. Assemble Final Response
+        # 5. Assemble Final Response
         feedback = SessionFeedback(
-            vocabulary=vocab_cards,  # Keep all cards, but annotated
+            vocabulary=vocab_cards,
             corrections=corrections,
             summary=f"Found {len(vocab_cards)} new words and {len(corrections)} grammar tips."
         )
@@ -95,55 +124,43 @@ class FeedbackGenerator:
 
         return feedback.model_dump()  # Returns clean JSON dict
 
-    # --- THE "HYBRID" RESOLVER ---
-    def _resolve_phrase(self, phrase: str) -> VocabCard:
+    # --- THE "HYBRID" RESOLVER (UPDATED) ---
+    def _resolve_phrase(self, phrase: str, original_sentence: str, corrected_sentence: str) -> Optional[VocabCard]:
         """
-        Resolves a phrase using Dictionary First, then LLM fallback.
+        Delegates to LLMHandler's smart suggest_phrase.
+        NOW passes both original and corrected sentences.
         """
-        clean_phrase = phrase.lower().strip()
+        print(f"  [SMART] Resolving '{phrase}'...")
         
-        # PATH A: Dictionary Lookup (Instant & Accurate)
-        if clean_phrase in self.dictionary:
-            entry = self.dictionary[clean_phrase]
-            print(f"  [DICT] ✅ Found in dictionary: {entry['translation']} [{entry['pinyin']}]")
-            
-            return VocabCard(
-                original_text=phrase,
-                mandarin_text=entry['translation'],
-                pinyin=entry['pinyin'],
-                example_sentence=f"例句：{entry['translation']}",  # Dictionary lacks examples
-                difficulty_level="Dictionary",
-                type="word",
-                source="dictionary"
-            )
-
-        # PATH B: LLM Generation (Creative & Context-Aware)
-        print(f"  [LLM] ⚠️  Not in dictionary, calling LLM...")
-        
-        # Use existing suggest_phrase method from LLMHandler
         try:
-            result = self.llm.suggest_phrase(english_phrase=phrase, sentence_context="")
+            # Call the updated method with 3 parameters
+            result = self.llm.suggest_phrase(
+                english_phrase=phrase,
+                original_sentence=original_sentence,
+                corrected_sentence=corrected_sentence
+            )
             
-            print(f"  [LLM] ✅ Got: {result.get('translation', '')} [{result.get('pinyin', '')}]")
+            # Standardize source for the UI
+            raw_source = result.get('source', 'llm')
+            final_source = "dictionary" if "dictionary" in raw_source else "llm"
             
             return VocabCard(
                 original_text=phrase,
                 mandarin_text=result.get('translation', phrase),
                 pinyin=result.get('pinyin', ''),
                 example_sentence=result.get('example', ''),
-                difficulty_level='Unknown',  # LLM doesn't provide this
-                type='phrase',
-                source=result.get('source', 'llm')
+                difficulty_level=result.get('source', 'LLM'),
+                type='word',
+                source=final_source
             )
         except Exception as e:
-            print(f"  [LLM] ❌ Failed: {e}")
-            # Fallback Card
+            print(f"  [ERROR] Resolve failed: {e}")
             return VocabCard(
                 original_text=phrase,
-                mandarin_text="[Not Found]",
+                mandarin_text=phrase,
                 pinyin="",
-                example_sentence="",
-                difficulty_level="Unknown",
+                example_sentence="Error resolving phrase",
+                difficulty_level="Error",
                 type="unknown",
                 source="error"
             )
