@@ -31,8 +31,11 @@ export default function App() {
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [feedback, setFeedback] = useState(null);
+  const [sessionEnded, setSessionEnded] = useState(false);
   const [error, setError] = useState(null);
   const listRef = useRef(null);
+
+  
 
   const [autoSubmit, setAutoSubmit] = useState(() => {
     try {
@@ -440,6 +443,7 @@ export default function App() {
 
       const data = await resp.json();
       setFeedback(data.feedback || data);
+      setSessionEnded(true);
     } catch (e) {
       console.error("End session error", e);
       setError("结束会话失败: " + (e.message || e));
@@ -466,6 +470,28 @@ export default function App() {
     URL.revokeObjectURL(url);
   }
 
+  function exportFeedback() {
+  if (!feedback) return;
+
+  const payload = {
+    session_id: sessionId,
+    exported_at: new Date().toISOString(),
+    feedback,
+  };
+
+  const blob = new Blob([JSON.stringify(payload, null, 2)], {
+    type: "application/json",
+  });
+
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `feedback_${sessionId}.json`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+
   function newSession() {
     const next = uuidv4();
     setSessionId(next);
@@ -474,6 +500,8 @@ export default function App() {
     setLiveTranscript("");
     setPendingTranscript(null);
     setEditableText("");
+    setSessionEnded(false);
+
     if (audioRef.current) {
       audioRef.current.pause();
     }
@@ -513,8 +541,8 @@ export default function App() {
 
       <main className="flex-1 p-4 max-w-5xl mx-auto w-full flex gap-4">
         {/* Chat Column */}
-        <div className="flex-1 flex flex-col">
-          <div ref={listRef} className="flex-1 overflow-auto mb-4 p-3 bg-white rounded-lg shadow-sm" style={{ minHeight: 300 }}>
+        <div className="flex-1 flex flex-col" style={{ maxHeight: 'calc(100vh - 8rem)' }}>
+          <div ref={listRef} className="flex-1 overflow-auto mb-4 p-3 bg-white rounded-lg shadow-sm">
             {messages.length === 0 && <div className="text-center text-slate-400 mt-20">Start the conversation by typing or speaking.</div>}
 
             <div className="space-y-3">
@@ -528,7 +556,16 @@ export default function App() {
           </div>
 
           <div className="bg-white p-3 rounded-lg shadow flex flex-col gap-2">
-            {error && <div className="text-sm text-red-600 p-2 bg-red-50 rounded">{error}</div>}
+            {error && <div className="text-sm text-red-600 p-3 bg-red-50 rounded">{error}</div>}
+
+            {sessionEnded && (
+            <div className="p-3 mb-2 rounded-md border border-orange-300 bg-orange-50 text-orange-800 text-sm rounded">
+              ⚠️ This session has ended and feedback has been generated.
+              <br />
+              To receive <strong>new feedback</strong>, please click{" "}
+              <span className="font-semibold">New Session</span>.
+            </div>
+            )}
 
             {liveTranscript && (
               <div className="p-2 bg-blue-50 rounded border border-blue-200">
@@ -631,15 +668,26 @@ export default function App() {
         {/* Feedback Sidebar */}
         {feedback && (
           <div className="w-96 bg-white rounded-lg shadow-sm p-4 overflow-auto" style={{ maxHeight: 'calc(100vh - 8rem)' }}>
-            <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center justify-between mb-4 gap-2">
               <h2 className="text-lg font-bold text-slate-800">📊 Session Feedback</h2>
-              <button 
-                onClick={() => setFeedback(null)}
-                className="text-slate-400 hover:text-slate-600 text-xl"
-              >
-                ×
-              </button>
+
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={exportFeedback}
+                  className="px-2 py-1 text-xs rounded-md border border-slate-300 text-slate-600 hover:bg-slate-100"
+                >
+                  Export
+                </button>
+
+                <button 
+                  onClick={() => setFeedback(null)}
+                  className="text-slate-400 hover:text-slate-600 text-xl leading-none"
+                >
+                  ×
+                </button>
+              </div>
             </div>
+
 
             {/* Summary */}
             <div className="mb-4 p-3 bg-blue-50 rounded-lg border border-blue-200">
