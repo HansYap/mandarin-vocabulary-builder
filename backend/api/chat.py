@@ -76,6 +76,7 @@ def chat():
             audio_chunks = []
             for chunk in tts_response.iter_content(chunk_size=4096):
                 if chunk:
+                    #Replace audio_chunks.append(chunk), With socketio.emit("audio_chunk", chunk) for true real time streaming
                     audio_chunks.append(chunk)
             
             audio_data = b''.join(audio_chunks)

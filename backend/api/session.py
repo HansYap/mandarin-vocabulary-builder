@@ -9,9 +9,6 @@ session_bp = Blueprint('session', __name__)
 # If you want to regenerate per session_id
 _feedback_generator = FeedbackGenerator(LLMHandler())
 
-# Use same in-memory store (or better: persistent)
-_transcripts = {}  # ideally same as chat
-
 # For simplicity, assuming global transcripts is okay:
 # (in real app: use a dict mapping session_id -> transcript)
 
