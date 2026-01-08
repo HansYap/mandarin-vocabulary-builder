@@ -687,85 +687,12 @@ export default function App() {
                 </button>
               </div>
             </div>
-
-
-            {/* Summary */}
-            <div className="mb-4 p-3 bg-blue-50 rounded-lg border border-blue-200">
-              <p className="text-sm text-blue-800">{feedback.summary}</p>
-            </div>
-
-            {/* Vocabulary Cards */}
-            {feedback.vocabulary && feedback.vocabulary.length > 0 && (
-              <div className="mb-6">
-                <h3 className="text-md font-semibold text-slate-700 mb-3 flex items-center gap-2">
-                  📚 Vocabulary / Literal Translation ({feedback.vocabulary.length})
-                </h3>
-                <div className="space-y-3">
-                  {feedback.vocabulary.map((card, idx) => (
-                    <div key={idx} className={`p-3 rounded-lg border ${
-                      card.source === 'llm_uncertain' 
-                        ? 'bg-gradient-to-br from-orange-50 to-red-50 border-orange-300'
-                        : card.context_note
-                        ? 'bg-gradient-to-br from-purple-50 via-blue-50 to-pink-50 border-blue-300 ring-2 ring-blue-200'
-                        : 'bg-gradient-to-br from-purple-50 to-pink-50 border-purple-200'
-                    }`}>
-                      <div className="flex items-start justify-between mb-2">
-                        <div className="font-medium text-slate-800">{card.original_text}</div>
-                        <div className="flex gap-1">
-                          {card.context_note && (
-                            <span className="text-xs px-2 py-1 rounded-full bg-blue-100 text-blue-700 animate-pulse">
-                              📝 也在句子中
-                            </span>
-                          )}
-                          <span className={`text-xs px-2 py-1 rounded-full ${
-                            card.source === 'dictionary' 
-                              ? 'bg-green-100 text-green-700' 
-                              : card.source === 'llm_uncertain'
-                              ? 'bg-orange-100 text-orange-700'
-                              : 'bg-blue-100 text-blue-700'
-                          }`}>
-                            {card.source === 'dictionary' ? '📖 字典' : card.source === 'llm_uncertain' ? '⚠️ 不确定' : '🤖 AI'}
-                          </span>
-                        </div>
-                      </div>
-                      <div className="text-xs text-slate-500 mb-1">字面意思 (Literal meaning):</div>
-                      <div className="text-2xl font-bold text-purple-700 mb-1">
-                        {card.mandarin_text}
-                      </div>
-                      <div className="text-sm text-purple-600 mb-2">
-                        {card.pinyin}
-                      </div>
-                      {card.context_note && (
-                        <div className="text-xs text-blue-700 bg-blue-100/70 p-2 rounded mb-2 border border-blue-300">
-                          {card.context_note}
-                        </div>
-                      )}
-                      {card.example_sentence && !card.context_note && (
-                        <div className="text-sm text-slate-600 bg-white/50 p-2 rounded">
-                          💬 {card.example_sentence}
-                        </div>
-                      )}
-                      <div className="flex gap-2 mt-2">
-                        {card.difficulty_level && card.difficulty_level !== 'Unknown' && (
-                          <span className="text-xs px-2 py-1 bg-white/70 rounded text-slate-600">
-                            {card.difficulty_level}
-                          </span>
-                        )}
-                        <span className="text-xs px-2 py-1 bg-white/70 rounded text-slate-600">
-                          {card.type}
-                        </span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
+            
             {/* Sentence Corrections */}
             {feedback.corrections && feedback.corrections.length > 0 && (
               <div>
                 <h3 className="text-md font-semibold text-slate-700 mb-3 flex items-center gap-2">
-                  ✏️ Corrections given context of surrounding words ({feedback.corrections.length})
+                  ✏️ Feedback on sentences needing corrections ({feedback.corrections.length})
                 </h3>
                 <div className="space-y-3">
                   {feedback.corrections.map((corr, idx) => (
@@ -790,8 +717,7 @@ export default function App() {
             )}
 
             {/* Empty State */}
-            {(!feedback.vocabulary || feedback.vocabulary.length === 0) && 
-             (!feedback.corrections || feedback.corrections.length === 0) && (
+            {(!feedback.corrections || feedback.corrections.length === 0) && (
               <div className="text-center text-slate-400 py-8">
                 No feedback items to display
               </div>
