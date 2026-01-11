@@ -45,6 +45,20 @@ class FeedbackGenerator:
             result_data = self.llm.correct_sentence(sent) 
             corrected_text = result_data.get('corrected', sent)
             mappings = result_data.get('mappings', [])
+            
+            # === DEBUG OUTPUT ===
+            print(f"\n{'='*70}")
+            print(f"📝 Original:  {sent}")
+            print(f"✅ Corrected: {corrected_text}")
+            print(f"📋 Mappings from LLM:")
+            for i, m in enumerate(mappings, 1):
+                en = m.get('english', '?')
+                cn = m.get('chinese', '?')
+                # Check if the Chinese word actually exists in corrected text
+                exists = '✓' if cn in corrected_text else '✗ NOT IN TEXT'
+                print(f"   {i}. '{en}' → '{cn}' {exists}")
+            print(f"{'='*70}\n")
+            # === END DEBUG ===
 
             # 2. Process Mappings for Anchors and Vocab Cards
             for item in mappings:

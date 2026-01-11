@@ -1,15 +1,11 @@
-from flask import Blueprint, request, jsonify, send_file
-from backend.models.asr_handler import ASRHandler
-from backend.models.llm_handler import LLMHandler
-from backend.models.feedback_gen import FeedbackGenerator
-from backend.state.store import transcripts, conversation_histories
+from flask import Blueprint, request, jsonify
+from backend.state.store import transcripts, conversation_histories, llm
 import requests
-import io
 
 # Create your handlers once (or you can lazily create per-request) (RMBR SINGLETON)
-asr = ASRHandler()
-llm = LLMHandler()
-feedback = FeedbackGenerator(llm)
+# asr = ASRHandler()
+# llm = LLMHandler()
+# feedback = FeedbackGenerator(llm)
 
 # MeloTTS API endpoint
 MELOTTS_API_URL = "http://localhost:8000/tts"

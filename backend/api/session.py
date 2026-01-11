@@ -1,13 +1,7 @@
 from flask import Blueprint, request, jsonify
-
-from backend.models.feedback_gen import FeedbackGenerator
-from backend.models.llm_handler import LLMHandler
-from backend.state.store import transcripts
+from backend.state.store import transcripts, feedback, asr
 
 session_bp = Blueprint('session', __name__)
-
-# If you want to regenerate per session_id
-_feedback_generator = FeedbackGenerator(LLMHandler())
 
 # For simplicity, assuming global transcripts is okay:
 # (in real app: use a dict mapping session_id -> transcript)
@@ -17,6 +11,8 @@ _feedback_generator = FeedbackGenerator(LLMHandler())
 def end_session():
     data = request.get_json() or {}
     session_id = data.get('session_id', 'default')
+    
+    asr.unload_model()
 
     # Get the stored transcript (you need to share it with chat)
     transcript = transcripts.get(session_id, [])
@@ -26,7 +22,7 @@ def end_session():
         print(f"{msg['role'].upper()}: {msg['text']}")
     print("=== END TRANSCRIPT ===\n")
     
-    feedback = _feedback_generator.analyze_session(transcript)
+    feedback_response = feedback.analyze_session(transcript)
 
     # clear for next session
     transcripts[session_id] = []
@@ -34,5 +30,5 @@ def end_session():
 
     return jsonify({
         'status': 'success',
-        'feedback': feedback
+        'feedback': feedback_response
     })

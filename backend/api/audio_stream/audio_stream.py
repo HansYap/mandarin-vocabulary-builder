@@ -1,10 +1,7 @@
 from flask import request
 from flask_socketio import emit, join_room
 from backend.app import socketio
-from backend.models.asr_handler import ASRHandler
-
-asr = ASRHandler()
-partial_transcripts = {}
+from backend.state.store import asr, partial_transcripts
 
 @socketio.on('connect')
 def handle_connect():

@@ -2,21 +2,32 @@ from faster_whisper import WhisperModel
 import subprocess
 import tempfile
 import os
+import torch
 
 class ASRHandler:
     def __init__(self):
         # Using large-v3-turbo for better mixed Mandarin/English recognition
-        # It fits in your 8GB VRAM alongside Qwen and MeloTTS
-        self.model = WhisperModel(
-            "large-v3-turbo", 
-            device="cuda",
-            compute_type="float16", 
-            num_workers=1
-        )
-        
+        self.model = None
+        self.last_use_time = None
         self.session_chunks = {}
-        print("✅ faster-whisper initialized (large-v3-turbo, float16)")
         
+        print("✅ ASR Handler initialized (lazy loading)")
+    
+    def _ensure_model_loaded(self):
+        """Load model on first use"""
+        if self.model is None:
+            from faster_whisper import WhisperModel
+            self.model = WhisperModel(
+                "large-v3-turbo", 
+                device="cuda",
+                compute_type="float16", 
+                num_workers=1
+            )
+            print("✅ Whisper loaded into VRAM")
+        
+        import time
+        self.last_use_time = time.time()
+      
     def add_chunk(self, session_id, webm_bytes):
         """Restored: Adds incoming audio chunks to the session buffer"""
         if session_id not in self.session_chunks:
@@ -47,6 +58,8 @@ class ASRHandler:
             return None
 
     def transcribe_accumulated(self, session_id):
+        self._ensure_model_loaded()
+        
         if session_id not in self.session_chunks or not self.session_chunks[session_id]:
             return ""
 
@@ -90,3 +103,11 @@ class ASRHandler:
                     os.unlink(temp_path)
                 except:
                     pass
+
+    def unload_model(self):
+        """Call this when user ends session"""
+        if self.model is not None:
+            del self.model
+            self.model = None
+            torch.cuda.empty_cache()
+            print("✅ Whisper unloaded from VRAM")

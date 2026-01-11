@@ -11,7 +11,8 @@ class LLMHandler:
         
         # 2. LLM Config
         self.ollama_url = "http://localhost:11434/api/generate"
-        self.model = "qwen2.5:1.5b"
+        self.chat_model = "qwen2.5:1.5b"
+        self.feedback_model = "qwen2.5:3b"
 
     # -------------------------------------------------------
     # DICTIONARY LOADING
@@ -98,18 +99,7 @@ class LLMHandler:
                 f"<assistant>"
             )
 
-            response = requests.post(
-                self.ollama_url,
-                json={
-                    "model": self.model,
-                    "prompt": prompt,
-                    "options": {
-                        "temperature": 0.6,
-                        "top_p": 0.9,
-                    },
-                    "stream": False
-                }
-            )
+            response = self._call_ollama(self.chat_model, prompt, 0.9, 0.9, keep_alive="5m")
 
             if response.status_code != 200:
                 return "抱歉，我好像遇到一点问题，你可以再说一次吗？"
@@ -132,45 +122,69 @@ class LLMHandler:
         """
         Returns: { "corrected": "...", "mappings": [{"english": "...", "chinese": "..."}], "note": "..." }
         """
-        prompt = f"""You are a professional Chinese tutor. 
-        TASK: Convert the input into natural Mandarin. Identify English words used and provide the specific Chinese term you used to replace them.
+        has_chinese = bool(re.search(r'[\u4e00-\u9fff]', broken_sentence))
+    
+        if has_chinese:
+        # Mixed sentence - need detailed mappings
+            prompt = f"""你是专业中文老师。
+            任务：把学生的混合句子改成自然的中文，并标注哪些英文词被替换了。
 
-        CRITICAL RULES:
-        1. If the input is mixed, translate English parts into contextually appropriate Mandarin.
-        2. Provide a 'mappings' list showing exactly which Chinese word replaced which English word.
-        3. HOMONYM ALERT: If the same English word is used twice with DIFFERENT meanings (e.g., 'match' as fire-starter vs 'match' as a game), you MUST use the correct Chinese word for each context.
-        4. FULL WORDS ONLY: Do not map grammar particles (like '们', '了', '的') as the translation for a noun. Map the whole word (e.g., 'people' -> '人们', not '们').
-        5. MAPPING: Your 'mappings' list must reflect every unique translation used.
-        6. Output ONLY JSON.
+            严格规则：
+            1. 把所有英文词替换成对应的中文词
+            2. **只替换英文词，保持原有中文不变**
+            3. 同音异义：如果同一个英文词出现多次但意思不同（例如 "book" 作为动词"预订"和名词"书"），必须用不同的中文词
+            4. 完整词汇：mappings 必须是完整的词，不要只映射语气助词（例如 "people" → "人们"，不是 "们"）
+            5. mappings 里的中文词必须在 corrected 句子中真实存在
+            6. 只输出 JSON 格式
 
-        Input: "我想要book一间房，因为我想读一本book"
-        Output: {{
-            "corrected": "我想要预订一间房，因为我想读一本书",
-            "mappings": [
-                {{"english": "book", "chinese": "预订"}},
-                {{"english": "book", "chinese": "书"}}
-            ],
-            "note": "Used '预订' for reserving and '书' for the physical object."
-        }}
+            示例：
+            输入: "我想要book一间房，因为我想读一本book"
+            输出: {{
+                "corrected": "我想要预订一间房，因为我想读一本书",
+                "mappings": [
+                    {{"english": "book", "chinese": "预订"}},
+                    {{"english": "book", "chinese": "书"}}
+                ],
+                "note": "第一个 book 是动词（预订），第二个是名词（书）"
+            }}
 
-        NOW CORRECT:
-        "{broken_sentence}"
+            现在处理：
+            "{broken_sentence}"
 
-        Output (JSON only):"""
+            输出（只输出JSON）："""
+
+        else:
+            # Pure English - just translate, no mappings needed
+            prompt = f"""你是专业中文老师。
+            任务：把学生的英文句子翻译成自然的中文（HSK 2-4 水平）。
+
+            规则：
+            1. 翻译成母语者会说的自然表达
+            2. 不要逐字翻译
+            3. 保持原意
+            4. 只输出 JSON 格式
+            5. **不需要 mappings 字段**（因为是整句翻译）
+
+            示例：
+            输入: "hello people"
+            输出: {{"corrected": "大家好", "note": ""}}
+
+            输入: "how are you"
+            输出: {{"corrected": "你好吗", "note": ""}}
+
+            输入: "I want to book a room"
+            输出: {{"corrected": "我想订一间房", "note": ""}}
+
+            现在处理：
+            "{broken_sentence}"
+
+            输出（只输出JSON）："""
 
         try:
-            response = requests.post(
-                self.ollama_url,
-                json={
-                    "model": self.model,
-                    "prompt": prompt,
-                    "options": {
-                        "temperature": 0.2,
-                        "top_p": 0.9,
-                    },
-                    "stream": False
-                }
-            )
+            requests.post(self.ollama_url, json={"model": self.chat_model, "keep_alive": 0})
+            print("1.5B Unloaded. Loading 3B Feedback Model...")
+            
+            response = self._call_ollama(self.feedback_model, prompt, 0.25, 0.9, 0)
 
             raw = self._safe_parse_response(response).strip()
             
@@ -217,19 +231,14 @@ class LLMHandler:
         return "\n".join(formatted)
 
     def _safe_parse_response(self, response):
-        """Handles Ollama's NDJSON output format."""
-        text = response.text.strip()
-        final_chunks = []
-
-        for line in text.split("\n"):
-            try:
-                obj = json.loads(line)
-                if "response" in obj:
-                    final_chunks.append(obj["response"])
-            except json.JSONDecodeError:
-                continue
-
-        return "".join(final_chunks).replace("</assistant>", "")
+        """Modified for non-streaming JSON mode"""
+        try:
+            # Since stream=False, the entire body is one JSON object
+            data = response.json()
+            return data.get("response", "")
+        except Exception as e:
+            print(f"Parsing error: {e}")
+            return ""
 
     def _looks_like_mandarin(self, text):
         """Check if output contains Chinese characters."""
@@ -254,4 +263,19 @@ class LLMHandler:
                 "note": "解析错误"
             }
             
+    def _call_ollama(self, model, prompt, temperature=0.2, top_p=0.9, keep_alive="5m"):
+        """Unified caller to handle VRAM memory swap."""
+        payload = {
+            "model": model,
+            "prompt": prompt,
+            "stream": False,
+            #"format": "json",
+            "keep_alive": keep_alive, # How long it stays in GPU
+            "options": {
+                "num_ctx": 2048,      # IMPORTANT: Limits RAM usage to ~500MB
+                "temperature": temperature,
+                "top_p": top_p,
+            }
+        }
+        return requests.post(self.ollama_url, json=payload)
             
