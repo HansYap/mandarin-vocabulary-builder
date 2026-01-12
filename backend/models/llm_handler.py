@@ -116,97 +116,141 @@ class LLMHandler:
             return "系统好像连不上，你可以再试一次吗？"
 
     # -------------------------------------------------------
-    # PUBLIC: Correct Sentence
+    # PUBLIC: Correct Sentence (NEW APPROACH)
     # -------------------------------------------------------
     def correct_sentence(self, broken_sentence):
         """
-        Returns: { "corrected": "...", "mappings": [{"english": "...", "chinese": "..."}], "note": "..." }
+        NEW: Natural correction with smart highlighting.
+        
+        Returns: {
+            "corrected": "自然的中文句子",
+            "highlights": [
+                {
+                    "word": "中文词",
+                    "meaning": "English meaning",
+                    "why": "为什么值得学习",
+                    "category": "new_vocab|measure_word|collocation|idiom"
+                }
+            ],
+            "note": "整体评价（可选）"
+        }
         """
-        has_chinese = bool(re.search(r'[\u4e00-\u9fff]', broken_sentence))
-    
-        if has_chinese:
-        # Mixed sentence - need detailed mappings
-            prompt = f"""你是专业中文老师。
-            任务：把学生的混合句子改成自然的中文，并标注哪些英文词被替换了。
+        
+        # Extract English words to hint to the LLM
+        english_words = re.findall(r'[a-zA-Z]+', broken_sentence)
+        english_hint = f"\n注意：用户用英文说了这些词：{', '.join(english_words)}" if english_words else ""
+        
+        # Build the new prompt
+        prompt = f"""你是经验丰富的中文老师。学生（中级水平，HSK 3-4）说了：
 
-            严格规则：
-            1. 把所有英文词替换成对应的中文词
-            2. **只替换英文词，保持原有中文不变**
-            3. 同音异义：如果同一个英文词出现多次但意思不同（例如 "book" 作为动词"预订"和名词"书"），必须用不同的中文词
-            4. 完整词汇：mappings 必须是完整的词，不要只映射语气助词（例如 "people" → "人们"，不是 "们"）
-            5. mappings 里的中文词必须在 corrected 句子中真实存在
-            6. 只输出 JSON 格式
+"{broken_sentence}"{english_hint}
 
-            示例：
-            输入: "我想要book一间房，因为我想读一本book"
-            输出: {{
-                "corrected": "我想要预订一间房，因为我想读一本书",
-                "mappings": [
-                    {{"english": "book", "chinese": "预订"}},
-                    {{"english": "book", "chinese": "书"}}
-                ],
-                "note": "第一个 book 是动词（预订），第二个是名词（书）"
-            }}
+任务：
+1. 改成母语者会说的自然句子
+2. 标注值得学习的词汇（新词、搭配、量词、习语等）
 
-            现在处理：
-            "{broken_sentence}"
+规则：
+- 不要逐字翻译！要说母语者真正会说的话
+- 习语、问候语要用地道表达（例如："hello people" → "大家好"，不是"你好人们"）
+- 高亮所有值得注意的词汇：
+  * 用户用英文说的词（说明他们不知道中文怎么说）
+  * 中高级词汇（HSK 3+）
+  * 量词、搭配、习语
+  * 不要标注"我"、"的"、"是"这种最基础的词
+- 量词如果用错，要标注正确的量词
+- 如果句子已经很自然，corrected 可以跟原句相同
 
-            输出（只输出JSON）："""
+输出JSON（无其他文字）：
+{{
+  "corrected": "自然流畅的中文句子",
+  "highlights": [
+    {{
+      "word": "高亮的中文词",
+      "meaning": "英文含义",
+      "why": "为什么值得学习（例如：常用搭配、正式用语、量词等）",
+      "category": "new_vocab|collocation|measure_word|idiom"
+    }}
+  ],
+  "note": "整体评价（可选，如果句子改动较大才写）"
+}}
 
-        else:
-            # Pure English - just translate, no mappings needed
-            prompt = f"""你是专业中文老师。
-            任务：把学生的英文句子翻译成自然的中文（HSK 2-4 水平）。
+示例1 - 混合中英文：
+输入: "我想book一个restaurant，你有recommendation吗？"
+输出: {{
+  "corrected": "我想预订一家餐厅，你有推荐的吗？",
+  "highlights": [
+    {{"word": "预订", "meaning": "to reserve/book", "why": "正式场合用词", "category": "new_vocab"}},
+    {{"word": "一家餐厅", "meaning": "a restaurant", "why": "餐厅的量词是'家'", "category": "measure_word"}},
+    {{"word": "推荐", "meaning": "recommend", "why": "常用动词", "category": "new_vocab"}}
+  ],
+  "note": ""
+}}
 
-            规则：
-            1. 翻译成母语者会说的自然表达
-            2. 不要逐字翻译
-            3. 保持原意
-            4. 只输出 JSON 格式
-            5. **不需要 mappings 字段**（因为是整句翻译）
+示例2 - 语法/语序错误：
+输入: "我昨天去了商店很多人"
+输出: {{
+  "corrected": "我昨天去了商店，人很多",
+  "highlights": [
+    {{"word": "人很多", "meaning": "very crowded (lit: people very many)", "why": "正确语序：主语+很+形容词", "category": "collocation"}}
+  ],
+  "note": "需要用逗号分隔两个信息"
+}}
 
-            示例：
-            输入: "hello people"
-            输出: {{"corrected": "大家好", "note": ""}}
+示例3 - 已经很自然：
+输入: "我今天很累，想早点睡觉"
+输出: {{
+  "corrected": "我今天很累，想早点睡觉",
+  "highlights": [],
+  "note": "说得很自然！"
+}}
 
-            输入: "how are you"
-            输出: {{"corrected": "你好吗", "note": ""}}
+示例4 - 纯英文（习语表达）：
+输入: "hello people"
+输出: {{
+  "corrected": "大家好",
+  "highlights": [
+    {{"word": "大家好", "meaning": "hello everyone (idiomatic greeting)", "why": "习惯用语，比'你好人们'更自然", "category": "idiom"}}
+  ],
+  "note": ""
+}}
 
-            输入: "I want to book a room"
-            输出: {{"corrected": "我想订一间房", "note": ""}}
+示例5 - 纯英文（直接翻译）：
+输入: "I want to learn Chinese"
+输出: {{
+  "corrected": "我想学中文",
+  "highlights": [
+    {{"word": "学", "meaning": "to learn/study", "why": "基础动词", "category": "new_vocab"}},
+    {{"word": "中文", "meaning": "Chinese language", "why": "与'汉语'同义，更口语化", "category": "new_vocab"}}
+  ],
+  "note": ""
+}}
 
-            现在处理：
-            "{broken_sentence}"
+现在处理：
+"{broken_sentence}"
 
-            输出（只输出JSON）："""
+输出JSON："""
 
         try:
+            # Unload chat model, load feedback model
             requests.post(self.ollama_url, json={"model": self.chat_model, "keep_alive": 0})
-            print("1.5B Unloaded. Loading 3B Feedback Model...")
+            print("→ Loading 3B Feedback Model...")
             
-            response = self._call_ollama(self.feedback_model, prompt, 0.25, 0.9, 0)
-
+            response = self._call_ollama(self.feedback_model, prompt, 0.3, 0.9, 0)
             raw = self._safe_parse_response(response).strip()
             
-            # More aggressive cleaning for JSON output
-            # Remove all whitespace/newlines that might break JSON
-            raw = ' '.join(raw.split())
-            
+            # Clean and parse JSON
             parsed = self._parse_json_or_fallback(raw)
             
-            # Additional validation: ensure we got actual content, not JSON structure
-            if isinstance(parsed.get('corrected'), str):
-                # Check if the correction contains JSON artifacts
-                corrected = parsed['corrected']
-                if '{' in corrected or '"corrected"' in corrected:
-                    print(f"[WARN] Detected JSON in correction, extracting...")
-                    # Try to extract just the corrected sentence
-                    # Pattern: look for Chinese content between quotes
-                    match = re.search(r'[""]([^"""]+)[""]', corrected)
-                    if match:
-                        corrected = match.group(1)
-                        parsed['corrected'] = corrected
-                        print(f"[WARN] Extracted: '{corrected}'")
+            # Validate structure
+            if not parsed.get('corrected'):
+                parsed['corrected'] = broken_sentence
+            if 'highlights' not in parsed:
+                parsed['highlights'] = []
+            if 'note' not in parsed:
+                parsed['note'] = ''
+            
+            print(f"✅ Corrected: {parsed['corrected']}")
+            print(f"📚 Highlights: {len(parsed['highlights'])} items")
             
             return parsed
             
@@ -214,6 +258,7 @@ class LLMHandler:
             print(f"[ERROR] Correction failed: {e}")
             return {
                 "corrected": broken_sentence,
+                "highlights": [],
                 "note": f"Error: {str(e)}"
             }
 
@@ -260,6 +305,7 @@ class LLMHandler:
                     pass
             return {
                 "corrected": text,
+                "highlights": [],
                 "note": "解析错误"
             }
             
@@ -269,13 +315,11 @@ class LLMHandler:
             "model": model,
             "prompt": prompt,
             "stream": False,
-            #"format": "json",
-            "keep_alive": keep_alive, # How long it stays in GPU
+            "keep_alive": keep_alive,
             "options": {
-                "num_ctx": 2048,      # IMPORTANT: Limits RAM usage to ~500MB
+                "num_ctx": 2048,
                 "temperature": temperature,
                 "top_p": top_p,
             }
         }
         return requests.post(self.ollama_url, json=payload)
-            
