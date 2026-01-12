@@ -1,8 +1,8 @@
 import json
 import re
 from typing import List, Dict, Optional
-from backend.models.llm_handler import LLMHandler
-from backend.models.schemas import SessionFeedback, VocabCard, SentenceCorrection
+from backend.services.llm_handler import LLMHandler
+from backend.services.schemas import SessionFeedback, VocabCard, SentenceCorrection
 
 
 class FeedbackGenerator:

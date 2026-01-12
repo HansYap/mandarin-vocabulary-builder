@@ -151,6 +151,7 @@ class LLMHandler:
 
 规则：
 - 不要逐字翻译！要说母语者真正会说的话
+- 仔细理解句子结构和语境（注意一词多义、同形异义词）
 - 习语、问候语要用地道表达（例如："hello people" → "大家好"，不是"你好人们"）
 - 高亮所有值得注意的词汇：
   * 用户用英文说的词（说明他们不知道中文怎么说）
@@ -223,6 +224,18 @@ class LLMHandler:
     {{"word": "中文", "meaning": "Chinese language", "why": "与'汉语'同义，更口语化", "category": "new_vocab"}}
   ],
   "note": ""
+}}
+
+示例6 - 纯英文（注意一词多义）：
+输入: "I hit a bat with a bat"
+输出: {{
+  "corrected": "我用球棒打了一只蝙蝠",
+  "highlights": [
+    {{"word": "球棒", "meaning": "baseball bat (sports equipment)", "why": "运动器材", "category": "new_vocab"}},
+    {{"word": "蝙蝠", "meaning": "bat (animal)", "why": "动物名称", "category": "new_vocab"}},
+    {{"word": "用...打", "meaning": "to hit with (using...)", "why": "常用结构", "category": "collocation"}}
+  ],
+  "note": "注意：bat 有两个意思（球棒/蝙蝠）"
 }}
 
 现在处理：

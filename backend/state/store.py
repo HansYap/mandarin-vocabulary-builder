@@ -1,6 +1,6 @@
-from backend.models.asr_handler import ASRHandler
-from backend.models.llm_handler import LLMHandler
-from backend.models.feedback_gen import FeedbackGenerator
+from backend.services.asr_handler import ASRHandler
+from backend.services.llm_handler import LLMHandler
+from backend.services.feedback_gen import FeedbackGenerator
 
 # Create singletons ONCE - shared across ALL modules
 asr = ASRHandler()
