@@ -11,7 +11,7 @@ __pycache__/
 *.so
 
 # model bin
-backend/data/opus-mt-zh-en-ct2/
+backend/models/opus-mt-zh-en-ct2/
 
 # Distribution / packaging
 .Python
