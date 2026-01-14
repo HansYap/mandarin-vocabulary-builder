@@ -10,6 +10,9 @@ __pycache__/
 # C extensions
 *.so
 
+# model bin
+backend/data/opus-mt-zh-en-ct2/
+
 # Distribution / packaging
 .Python
 build/
