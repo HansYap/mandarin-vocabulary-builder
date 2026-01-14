@@ -1,72 +1,70 @@
 import React, { useEffect, useRef, useState } from "react";
 import { v4 as uuidv4 } from "uuid";
 import { io } from "socket.io-client";
+import Spinner from "./components/Spinner";
+import {
+  DesktopDictionarySkeleton,
+  MobileDictionarySkeleton
+} from "./components/dictionary/DictionarySkeletons";
+
 
 const SOCKET_URL = "http://127.0.0.1:5000";
 
 export default function App() {
-  const [sessionId, setSessionId] = useState(() => {
-    try {
-      const saved = localStorage.getItem("chat_session_id");
-      return saved || uuidv4();
-    } catch (e) {
-      return uuidv4();
-    }
-  });
-
-  useEffect(() => {
-    try {
-      localStorage.setItem("chat_session_id", sessionId);
-    } catch (e) {}
-  }, [sessionId]);
-
-  const [messages, setMessages] = useState(() => {
-    try {
-      const raw = localStorage.getItem("chat_messages_" + sessionId);
-      return raw ? JSON.parse(raw) : [];
-    } catch (e) {
-      return [];
-    }
-  });
+  const [sessionId, setSessionId] = useState(() => uuidv4());
+  const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
+  const [endingSession, setEndingSession] = useState(false);
   const [feedback, setFeedback] = useState(null);
   const [sessionEnded, setSessionEnded] = useState(false);
   const [error, setError] = useState(null);
-  const listRef = useRef(null);
-
-  
-
-  const [autoSubmit, setAutoSubmit] = useState(() => {
-    try {
-      const saved = localStorage.getItem("auto_submit_mode");
-      return saved === "true";
-    } catch (e) {
-      return false;
-    }
-  });
-
+  const [autoSubmit, setAutoSubmit] = useState(false);
   const [pendingTranscript, setPendingTranscript] = useState(null);
   const [editableText, setEditableText] = useState("");
+  const [isRecording, setIsRecording] = useState(false);
+  const [liveTranscript, setLiveTranscript] = useState("");
+  
+  // Dictionary lookup state
+  const [dictionaryEntry, setDictionaryEntry] = useState(null);
+  const [dictionaryLoading, setDictionaryLoading] = useState(false);
+  const [popoverPosition, setPopoverPosition] = useState(null);
+  const [isMobile, setIsMobile] = useState(false);
 
-  useEffect(() => {
-    try {
-      localStorage.setItem("auto_submit_mode", autoSubmit.toString());
-    } catch (e) {}
-  }, [autoSubmit]);
-
+  const listRef = useRef(null);
   const audioRef = useRef(null);
   const socketRef = useRef(null);
   const mediaRecorderRef = useRef(null);
   const streamRef = useRef(null);
-  const [isRecording, setIsRecording] = useState(false);
-  const [liveTranscript, setLiveTranscript] = useState("");
+  const editTextareaRef = useRef(null);
+  const popoverRef = useRef(null);
+  const dictionaryAbortRef = useRef(null);
 
+
+  // Detect mobile
   useEffect(() => {
-    try {
-      localStorage.setItem("chat_messages_" + sessionId, JSON.stringify(messages));
-    } catch (e) {}
-  }, [messages, sessionId]);
+    const checkMobile = () => {
+      setIsMobile(window.innerWidth < 768);
+    };
+    checkMobile();
+    window.addEventListener('resize', checkMobile);
+    return () => window.removeEventListener('resize', checkMobile);
+  }, []);
+
+  // Close dictionary on outside click (desktop only)
+  useEffect(() => {
+    if (!isMobile && popoverPosition) {
+      const handleClickOutside = (e) => {
+        if (popoverRef.current && !popoverRef.current.contains(e.target)) {
+          closeDictionary();
+        }
+      };
+
+      document.addEventListener("mousedown", handleClickOutside);
+      return () => document.removeEventListener("mousedown", handleClickOutside);
+    }
+  }, [popoverPosition, isMobile]);
+
 
   useEffect(() => {
     if (listRef.current) {
@@ -94,10 +92,7 @@ export default function App() {
   }
 
   async function sendToChat(text, isEdited = false, originalText = null) {
-    if (!text.trim()) {
-      console.log("⚠️ Empty text, skipping chat");
-      return;
-    }
+    if (!text.trim()) return;
 
     const userMsg = {
       id: uuidv4(),
@@ -105,12 +100,21 @@ export default function App() {
       text,
       ts: new Date().toISOString(),
     };
-    setMessages((m) => [...m, userMsg]);
+
+    // Create a unique ID for the placeholder so we can find it later
+    const placeholderId = uuidv4();
+    const thinkingMsg = {
+      id: placeholderId,
+      role: "assistant",
+      text: "Thinking...",
+      isPlaceholder: true, // Custom flag for styling
+      ts: new Date().toISOString(),
+    };
+
+    setMessages((m) => [...m, userMsg, thinkingMsg]);
 
     try {
       setLoading(true);
-      console.log("📤 Sending to /api/chat:", text);
-      
       const resp = await fetch("http://127.0.0.1:5000/api/chat/", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -122,36 +126,30 @@ export default function App() {
         }),
       });
       
-      if (!resp.ok) {
-        const txt = await resp.text();
-        throw new Error(txt || resp.statusText);
-      }
-      
+      if (!resp.ok) throw new Error(await resp.text() || resp.statusText);
       const d = await resp.json();
-      console.log("📥 Response from /api/chat:", d);
       
-      const assistantMsg = {
-        id: uuidv4(),
-        role: "assistant",
-        text: d.response || d.message || "（无回复）",
-        ts: new Date().toISOString(),
-      };
-      setMessages((m) => [...m, assistantMsg]);
+      // Replace the placeholder with the real response
+      setMessages((prev) => 
+        prev.map((msg) => 
+          msg.id === placeholderId 
+            ? { ...msg, text: d.response || d.message || "（无回复）", isPlaceholder: false }
+            : msg
+        )
+      );
       
-      if (d.audio) {
-        console.log("🔊 Playing TTS audio");
-        playAudio(d.audio);
-      }
+      if (d.audio) playAudio(d.audio);
     } catch (e) {
       console.error("❌ Chat error:", e);
       setError("无法联系后端: " + (e.message || e));
-      const failMsg = {
-        id: uuidv4(),
-        role: "assistant",
-        text: "抱歉，出了一点问题，稍后再试。",
-        ts: new Date().toISOString(),
-      };
-      setMessages((m) => [...m, failMsg]);
+      // Update placeholder to show error
+      setMessages((prev) => 
+        prev.map((msg) => 
+          msg.id === placeholderId 
+            ? { ...msg, text: "抱歉，出了一点问题，稍后再试。", isPlaceholder: false }
+            : msg
+        )
+      );
     } finally {
       setLoading(false);
     }
@@ -227,7 +225,6 @@ export default function App() {
     };
   }, [sessionId, autoSubmit]);
 
-  const editTextareaRef = useRef(null);
   useEffect(() => {
     if (pendingTranscript && editTextareaRef.current) {
       editTextareaRef.current.focus();
@@ -239,7 +236,6 @@ export default function App() {
     setLiveTranscript("");
     setPendingTranscript(null);
 
-    // Stop any playing TTS audio to avoid feedback loop
     if (audioRef.current) {
       audioRef.current.pause();
       audioRef.current.currentTime = 0;
@@ -311,7 +307,7 @@ export default function App() {
       
     } catch (e) {
       console.error("❌ startRecording error:", e);
-      setError("无法开启麦克风:  (Please enable microphone usage for browser if not enabled) " + (e.message || e));
+      setError("无法开启麦克风: (Please enable microphone usage for browser if not enabled) " + (e.message || e));
     }
   }
 
@@ -374,7 +370,16 @@ export default function App() {
       ts: new Date().toISOString(),
     };
 
-    setMessages((m) => [...m, userMsg]);
+    const placeholderId = uuidv4();
+    const thinkingMsg = {
+      id: placeholderId,
+      role: "assistant",
+      text: "Thinking...",
+      isPlaceholder: true,
+      ts: new Date().toISOString(),
+    };
+
+    setMessages((m) => [...m, userMsg, thinkingMsg]);
     setInput("");
     setLoading(true);
 
@@ -385,35 +390,27 @@ export default function App() {
         body: JSON.stringify({ text, session_id: sessionId }),
       });
 
-      if (!resp.ok) {
-        const txt = await resp.text();
-        throw new Error(txt || resp.statusText);
-      }
-
+      if (!resp.ok) throw new Error(await resp.text() || resp.statusText);
       const data = await resp.json();
 
-      const assistantMsg = {
-        id: uuidv4(),
-        role: "assistant",
-        text: data.response || data.message || "（无回复）",
-        ts: new Date().toISOString(),
-      };
-
-      setMessages((m) => [...m, assistantMsg]);
+      setMessages((prev) => 
+        prev.map((msg) => 
+          msg.id === placeholderId 
+            ? { ...msg, text: data.response || data.message || "（无回复）", isPlaceholder: false }
+            : msg
+        )
+      );
       
-      if (data.audio) {
-        playAudio(data.audio);
-      }
+      if (data.audio) playAudio(data.audio);
     } catch (e) {
-      console.error("Send error", e);
       setError("无法联系后端: " + (e.message || e));
-      const failMsg = {
-        id: uuidv4(),
-        role: "assistant",
-        text: "抱歉，我好像遇到一点问题，你可以再说一次吗？",
-        ts: new Date().toISOString(),
-      };
-      setMessages((m) => [...m, failMsg]);
+      setMessages((prev) => 
+        prev.map((msg) => 
+          msg.id === placeholderId 
+            ? { ...msg, text: "抱歉，我好像遇到一点问题，你可以再说一次吗？", isPlaceholder: false }
+            : msg
+        )
+      );
     } finally {
       setLoading(false);
     }
@@ -428,7 +425,7 @@ export default function App() {
 
   async function endSession() {
     setError(null);
-    setLoading(true);
+    setEndingSession(true);
     try {
       const resp = await fetch("http://127.0.0.1:5000/api/end-session/", {
         method: "POST",
@@ -448,8 +445,81 @@ export default function App() {
       console.error("End session error", e);
       setError("结束会话失败: " + (e.message || e));
     } finally {
-      setLoading(false);
+      setEndingSession(false);
     }
+  }
+
+  async function lookupDictionary(word, event) {
+    console.log("🔵 lookupDictionary called with:", word);
+
+    // Abort previous request
+    if (dictionaryAbortRef.current) {
+      dictionaryAbortRef.current.abort();
+    }
+
+    const controller = new AbortController();
+    dictionaryAbortRef.current = controller;
+
+    // Position popover immediately (desktop)
+    if (!isMobile && event) {
+      const rect = event.target.getBoundingClientRect();
+      setPopoverPosition({
+        top: rect.bottom + window.scrollY + 8,
+        left: rect.left + window.scrollX,
+      });
+    }
+
+    setDictionaryEntry(null);
+    setDictionaryLoading(true);
+
+    try {
+      const resp = await fetch(
+        "http://127.0.0.1:5000/api/dictionary/lookup",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ word }),
+          signal: controller.signal,
+        }
+      );
+
+      const data = await resp.json();
+
+      if (!controller.signal.aborted) {
+        if (data.success && data.entry) {
+          setDictionaryEntry(data.entry);
+        } else {
+          setDictionaryEntry({
+            found: false,
+            message: data.error || "Word not found",
+          });
+        }
+      }
+    } catch (err) {
+      if (err.name !== "AbortError") {
+        console.error("🔥 Dictionary lookup failed:", err);
+        setDictionaryEntry({
+          found: false,
+          message: "Dictionary service unavailable",
+        });
+      }
+    } finally {
+      if (!controller.signal.aborted) {
+        setDictionaryLoading(false);
+      }
+    }
+  }
+
+  function closeDictionary() {
+    // Abort in-flight request
+    if (dictionaryAbortRef.current) {
+      dictionaryAbortRef.current.abort();
+      dictionaryAbortRef.current = null;
+    }
+
+    setDictionaryLoading(false);
+    setDictionaryEntry(null);
+    setPopoverPosition(null);
   }
 
   function renderAnchoredText(text, onWordClick) {
@@ -472,7 +542,7 @@ export default function App() {
       parts.push(
         <span
           key={`${word}-${match.index}`}
-          onClick={() => onWordClick(word)}
+          onClick={(e) => onWordClick(word, e)}
           className="cursor-pointer text-purple-600 font-semibold hover:underline hover:bg-indigo-50 px-1 rounded"
         >
           {word}
@@ -490,48 +560,8 @@ export default function App() {
     return parts;
   }
 
-  function handleVocabClick(word) {
-    console.log("🟡 CLICK DETECTED:", word);
-    lookupDictionary(word);
-  }
-
-
-  async function lookupDictionary(word) {
-    console.log("🔵 lookupDictionary called with:", word);
-
-    try {
-      const resp = await fetch("http://127.0.0.1:5000/api/dictionary/lookup", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ word }),
-      });
-
-      console.log("🟢 Response status:", resp.status);
-
-      const data = await resp.json();
-      console.log("🟣 Raw response JSON:", data);
-
-      if (!data.success || !data.entry) {
-        console.log("❌ Term not found:", word);
-        return;
-      }
-
-      console.log("📖 FOUND:");
-      console.log("Word:", word);
-      console.log("Pinyin:", data.entry.pinyin);
-      console.log("Definitions:", data.entry.definitions);
-
-    } catch (err) {
-      console.error("🔥 Dictionary lookup failed:", err);
-    }
-  }
-
-
   function clearConversation() {
     setMessages([]);
-    try {
-      localStorage.removeItem("chat_messages_" + sessionId);
-    } catch (e) {}
   }
 
   function exportConversation() {
@@ -546,26 +576,25 @@ export default function App() {
   }
 
   function exportFeedback() {
-  if (!feedback) return;
+    if (!feedback) return;
 
-  const payload = {
-    session_id: sessionId,
-    exported_at: new Date().toISOString(),
-    feedback,
-  };
+    const payload = {
+      session_id: sessionId,
+      exported_at: new Date().toISOString(),
+      feedback,
+    };
 
-  const blob = new Blob([JSON.stringify(payload, null, 2)], {
-    type: "application/json",
-  });
+    const blob = new Blob([JSON.stringify(payload, null, 2)], {
+      type: "application/json",
+    });
 
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = `feedback_${sessionId}.json`;
-  a.click();
-  URL.revokeObjectURL(url);
-}
-
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `feedback_${sessionId}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
 
   function newSession() {
     const next = uuidv4();
@@ -576,14 +605,11 @@ export default function App() {
     setPendingTranscript(null);
     setEditableText("");
     setSessionEnded(false);
+    closeDictionary();
 
     if (audioRef.current) {
       audioRef.current.pause();
     }
-    try {
-      localStorage.setItem("chat_session_id", next);
-      localStorage.removeItem("chat_messages_" + next);
-    } catch (e) {}
   }
 
   return (
@@ -622,9 +648,31 @@ export default function App() {
 
             <div className="space-y-3">
               {messages.map((m) => (
-                <div key={m.id} className={`p-3 rounded-lg max-w-[80%] ${m.role === "user" ? "ml-auto bg-indigo-50" : "mr-auto bg-slate-100"}`}>
-                  <div className="text-sm whitespace-pre-wrap">{m.text}</div>
-                  <div className="text-[11px] text-slate-400 mt-1 text-right">{new Date(m.ts).toLocaleString()}</div>
+                <div 
+                  key={m.id} 
+                  className={`p-3 rounded-lg max-w-[80%] transition-all duration-300 ${
+                    m.role === "user" 
+                      ? "ml-auto bg-indigo-50 border-transparent" 
+                      : "mr-auto bg-slate-100 border-transparent"
+                  } border`}
+                >
+                  <div className="text-sm whitespace-pre-wrap">
+                    {m.isPlaceholder ? (
+                      <div className="flex items-center gap-2 py-1">
+                        <span className="text-slate-400 italic font-medium">Thinking</span>
+                        <div className="flex">
+                          <span className="dot"></span>
+                          <span className="dot"></span>
+                          <span className="dot"></span>
+                        </div>
+                      </div>
+                    ) : (
+                      m.text
+                    )}
+                  </div>
+                  <div className="text-[11px] text-slate-400 mt-1 text-right">
+                    {new Date(m.ts).toLocaleString()}
+                  </div>
                 </div>
               ))}
             </div>
@@ -634,12 +682,12 @@ export default function App() {
             {error && <div className="text-sm text-red-600 p-3 bg-red-50 rounded">{error}</div>}
 
             {sessionEnded && (
-            <div className="p-3 mb-2 rounded-md border border-orange-300 bg-orange-50 text-orange-800 text-sm rounded">
-              ⚠️ This session has ended and feedback has been generated.
-              <br />
-              To receive <strong>new feedback</strong>, please click{" "}
-              <span className="font-semibold">New Session</span>.
-            </div>
+              <div className="p-3 mb-2 rounded-md border border-orange-300 bg-orange-50 text-orange-800 text-sm rounded">
+                ⚠️ This session has ended and feedback has been generated.
+                <br />
+                To receive <strong>new feedback</strong>, please click{" "}
+                <span className="font-semibold">New Session</span>.
+              </div>
             )}
 
             {liveTranscript && (
@@ -686,50 +734,86 @@ export default function App() {
               onKeyDown={handleKeyDown} 
               placeholder="输入中文或英文（按 Enter 发送，Shift+Enter 换行）" 
               rows={3} 
-              className="w-full p-2 rounded border resize-none focus:outline-none focus:ring disabled:bg-slate-100" 
-              disabled={isRecording || pendingTranscript !== null}
+              className="w-full p-2 rounded border resize-none focus:outline-none focus:ring disabled:bg-slate-100 disabled:opacity-60 disabled:cursor-not-allowed" 
+              disabled={isRecording || pendingTranscript !== null || loading || endingSession}
             />
 
             <div className="flex items-center justify-between gap-3">
               <div className="flex gap-2 items-center flex-wrap">
-                <button 
-                  onClick={sendMessage} 
-                  disabled={loading || isRecording || pendingTranscript !== null} 
-                  className="px-4 py-2 bg-emerald-500 text-white rounded-md disabled:opacity-60 font-medium"
+                <button
+                  onClick={sendMessage}
+                  disabled={loading || isRecording || pendingTranscript !== null || endingSession}
+                  className={`
+                    px-4 py-2 rounded-md font-medium
+                    flex items-center justify-center
+                    transition-colors duration-200
+                    ${
+                      loading
+                        ? "bg-gray-300 text-gray-600 cursor-not-allowed"
+                        : "bg-emerald-500 text-white hover:bg-emerald-600"
+                    }
+                    disabled:opacity-60 disabled:cursor-not-allowed
+                  `}
                 >
-                  {loading ? "发送中... / Sending" : "发送 / Send Message"}
+                  <span className="relative inline-flex items-center justify-center">
+                    {/* Text (defines width) */}
+                    <span className={loading ? "invisible" : "visible"}>
+                      发送 / Send Message
+                    </span>
+
+                    {/* Spinner (overlayed) */}
+                    <span
+                      className={`
+                        absolute inset-0 flex items-center justify-center
+                        ${loading ? "opacity-100" : "opacity-0"}
+                      `}
+                    >
+                      <Spinner />
+                    </span>
+                  </span>
                 </button>
 
                 <button 
                   onClick={isRecording ? stopRecording : startRecording} 
-                  disabled={pendingTranscript !== null}
+                  disabled={pendingTranscript !== null || loading || endingSession}
                   className={`px-3 py-2 rounded-md text-sm font-medium ${
                     isRecording 
                       ? "bg-red-500 text-white animate-pulse" 
-                      : "bg-blue-500 text-white hover:bg-blue-600 disabled:opacity-60"
-                  }`}
+                      : "bg-blue-500 text-white hover:bg-blue-600"
+                  }disabled:opacity-60 disabled:cursor-not-allowed`}
                 >
                   {isRecording ? "⏹ Stop Speaking" : "🎤 Start Speaking"}
                 </button>
 
                 <button
                   onClick={() => setAutoSubmit(!autoSubmit)}
-                  disabled={isRecording}
+                  disabled={isRecording || loading || endingSession}
                   className={`px-3 py-2 rounded-md text-sm font-medium border-2 transition-colors ${
                     autoSubmit
                       ? "bg-green-500 text-white border-green-600"
                       : "bg-white text-slate-700 border-slate-300"
-                  } disabled:opacity-60`}
+                  } disabled:opacity-60 disabled:cursor-not-allowed`}
                 >
                   {autoSubmit ? "⚡ Auto" : "✋ Manual"}
                 </button>
 
                 <button 
                   onClick={endSession} 
-                  disabled={loading}
-                  className="px-3 py-2 rounded-md text-sm bg-orange-400 text-white hover:bg-orange-500 disabled:opacity-60 font-medium"
+                  disabled={endingSession || loading || isRecording}
+                  className={`px-3 py-2 rounded-md text-sm font-medium transition-all ${
+                    endingSession ? "bg-orange-400 text-white opacity-60" : "bg-orange-400 text-white hover:bg-orange-500 disabled:opacity-60 disabled:cursor-not-allowed"
+                  }`}
                 >
-                  End Session
+                  <span className="inline-flex items-center justify-center gap-2">
+                    {endingSession ? (
+                      <>
+                        <Spinner />
+                        Generating feedback
+                      </>
+                    ) : (
+                      "End Session"
+                    )}
+                  </span>
                 </button>
               </div>
 
@@ -772,22 +856,22 @@ export default function App() {
                 <div className="space-y-3">
                   {feedback.corrections.map((corr, idx) => (
                     <div key={idx} className="p-3 bg-gradient-to-br from-yellow-50 to-orange-50 rounded-lg border border-yellow-200">
-                      <div className="text-xs text-yellow-700 font-semibold mb-1">你说的 (What you said):</div>
+                      <div className="text-xs text-amber-700 font-semibold mb-1">你说的 (What you said):</div>
                       <div className="text-sm text-slate-600 mb-3 line-through opacity-70">
                         {corr.original_sentence}
                       </div>
                       <div className="text-xs text-green-700 font-semibold mb-1">更自然的说法 (Natural way):</div>
                       <div className="text-base font-medium text-slate-800 mb-2 leading-relaxed">
-                        {renderAnchoredText(corr.corrected_sentence, handleVocabClick)}
+                        {renderAnchoredText(corr.corrected_sentence, lookupDictionary)}
                       </div>
                       {corr.explanation && (
-                        <div className="text-sm text-orange-700 bg-white/50 p-2 rounded">
+                        <div className="text-sm text-amber-700 bg-white/50 p-2 rounded">
                           💡 {corr.explanation}
                         </div>
                       )}
                     </div>
                   ))}
-                    </div>
+                </div>
               </div>
             )}
 
@@ -800,6 +884,157 @@ export default function App() {
           </div>
         )}
       </main>
+
+      {/* Desktop Popover */}
+        {!isMobile && popoverPosition && (
+          <div
+            ref={popoverRef}
+            style={{
+              position: 'absolute',
+              top: `${popoverPosition.top}px`,
+              left: `${popoverPosition.left}px`,
+              zIndex: 1000,
+            }}
+            className="w-80 bg-white rounded-lg shadow-2xl border-2 border-purple-200 p-4"
+          >
+            {dictionaryLoading ? (
+              // Pulsing skeleton placeholder
+              <DesktopDictionarySkeleton />
+            ) : dictionaryEntry && dictionaryEntry.found ? (
+              // real content (unchanged)
+              <div>
+                <div className="flex items-start justify-between mb-3">
+                  <div>
+                    <div className="text-2xl font-bold text-slate-800">{dictionaryEntry.simplified}</div>
+                    {dictionaryEntry.traditional !== dictionaryEntry.simplified && (
+                      <div className="text-lg text-slate-500">{dictionaryEntry.traditional}</div>
+                    )}
+                    <div className="text-sm text-purple-600 mt-1">{dictionaryEntry.pinyin}</div>
+                  </div>
+                  <button
+                    onClick={closeDictionary}
+                    className="text-slate-400 hover:text-slate-600 text-xl leading-none"
+                  >
+                    ×
+                  </button>
+                </div>
+
+                <div className="border-t border-slate-200 pt-3">
+                  <div className="text-xs font-semibold text-slate-600 mb-2">Definitions:</div>
+                  <ul className="space-y-1">
+                    {dictionaryEntry.definitions.map((def, i) => (
+                      <li key={i} className="text-sm text-slate-700 flex gap-2">
+                        <span className="text-purple-500 font-medium">{i + 1}.</span>
+                        <span>{def}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+
+                {dictionaryEntry.is_generated && (
+                  <div className="mt-3 text-xs text-amber-600 bg-amber-50 p-2 rounded">
+                    ⚡ AI-generated translation and pinyin
+                  </div>
+                )}
+              </div>
+            ) : (
+              // not found / error
+              <div className="text-center py-4">
+                <div className="text-slate-600 mb-2">Word not found</div>
+                <div className="text-xs text-slate-400">{dictionaryEntry ? dictionaryEntry.message : "No entry"}</div>
+              </div>
+            )}
+          </div>
+        )}
+
+
+      {/* Mobile Bottom Sheet */}
+        {isMobile && (dictionaryLoading || dictionaryEntry) && (
+          <>
+            {/* Dimmed Overlay */}
+            <div
+              onClick={closeDictionary}
+              className="fixed inset-0 bg-black/40 z-40"
+            />
+
+            {/* Bottom Sheet */}
+            <div className="fixed bottom-0 left-0 right-0 bg-white rounded-t-2xl shadow-2xl z-50 max-h-[70vh] overflow-auto animate-slide-up">
+              <div className="p-5">
+                {dictionaryLoading ? (
+                  // Mobile skeleton
+                  <MobileDictionarySkeleton />
+                ) : dictionaryEntry && dictionaryEntry.found ? (
+                  // real content (unchanged)
+                  <div>
+                    <div className="mb-4">
+                      <div className="text-4xl font-bold text-slate-800 mb-2">{dictionaryEntry.simplified}</div>
+                      {dictionaryEntry.traditional !== dictionaryEntry.simplified && (
+                        <div className="text-2xl text-slate-500 mb-2">{dictionaryEntry.traditional}</div>
+                      )}
+                      <div className="text-lg text-purple-600">{dictionaryEntry.pinyin}</div>
+                    </div>
+
+                    <div className="border-t border-slate-200 pt-4">
+                      <div className="text-sm font-semibold text-slate-600 mb-3">Definitions:</div>
+                      <ul className="space-y-2">
+                        {dictionaryEntry.definitions.map((def, i) => (
+                          <li key={i} className="text-base text-slate-700 flex gap-3">
+                            <span className="text-purple-500 font-semibold">{i + 1}.</span>
+                            <span>{def}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+
+                    {dictionaryEntry.is_generated && (
+                      <div className="mt-4 text-sm text-amber-700 bg-amber-50 p-3 rounded-lg border border-amber-200">
+                        ⚡ AI-generated translation and pinyin
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div className="text-center py-8">
+                    <div className="text-lg text-slate-600 mb-2">Word not found</div>
+                    <div className="text-sm text-slate-400">{dictionaryEntry ? dictionaryEntry.message : ""}</div>
+                  </div>
+                )}
+              </div>
+            </div>
+          </>
+        )}
+
+
+      <style jsx>{`
+        @keyframes slide-up {
+          from {
+            transform: translateY(100%);
+          }
+          to {
+            transform: translateY(0);
+          }
+        }
+        .animate-slide-up {
+          animation: slide-up 0.3s ease-out;
+        }
+
+        @keyframes bounce {
+          0%, 80%, 100% { transform: translateY(0); }
+          40% { transform: translateY(-5px); }
+        }
+
+        .dot {
+          display: inline-block;
+          width: 6px;
+          height: 6px;
+          margin: 0 2px;
+          background-color: #94a3b8; /* slate-400 */
+          border-radius: 50%;
+          animation: bounce 1.4s infinite ease-in-out both;
+        }
+
+        .dot:nth-child(1) { animation-delay: -0.32s; }
+        .dot:nth-child(2) { animation-delay: -0.16s; }
+      `}</style>
     </div>
   );
 }

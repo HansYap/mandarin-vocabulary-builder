@@ -189,11 +189,13 @@ class DictionaryHandler:
             definitions = [m.strip() for m in meanings_raw.split('/') if m.strip()]
             
             return {
+                "is_generated": False,
                 "simplified": simplified,
                 "traditional": traditional,
                 "pinyin": pinyin,
                 "definitions": definitions,
-                "char_count": len(simplified)
+                "char_count": len(simplified),
+                "message": "Phrase found in dictionary",
             }
         except Exception as e:
             return None
@@ -222,7 +224,7 @@ class DictionaryHandler:
         Returns:
             Dictionary entry with simplified, traditional, pinyin, definitions
         """
-        if not chinese_word:
+        if not self._is_chinese(chinese_word):
             return self._not_found(chinese_word)
         
         # Try exact match first
@@ -239,7 +241,7 @@ class DictionaryHandler:
             translation = self._translate_phrase(chinese_word)
 
             return {
-                "found": False,
+                "found": True,
                 "is_generated": True,
                 "simplified": chinese_word,
                 "traditional": chinese_word,
@@ -266,7 +268,7 @@ class DictionaryHandler:
         return {
             "found": False,
             "query": word,
-            "message": "Term not found in CC-CEDICT"
+            "message": "Term not found"
         }
   
     def _is_chinese(self, text: str) -> bool:
