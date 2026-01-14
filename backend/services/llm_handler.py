@@ -10,7 +10,7 @@ class LLMHandler:
         self.dictionary = self._load_cedict(dict_path)
         
         # 2. LLM Config
-        self.ollama_url = "http://localhost:11434/api/generate"
+        self.ollama_url = "http://127.0.0.1:11434/api/generate"
         self.chat_model = "qwen2.5:1.5b"
         self.feedback_model = "qwen2.5:3b"
 

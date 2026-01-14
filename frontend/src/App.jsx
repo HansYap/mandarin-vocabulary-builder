@@ -452,6 +452,81 @@ export default function App() {
     }
   }
 
+  function renderAnchoredText(text, onWordClick) {
+    if (!text) return null;
+
+    const parts = [];
+    const regex = /\[\[(.*?)\]\]/g;
+
+    let lastIndex = 0;
+    let match;
+
+    while ((match = regex.exec(text)) !== null) {
+      const before = text.slice(lastIndex, match.index);
+      if (before) {
+        parts.push(before);
+      }
+
+      const word = match[1];
+
+      parts.push(
+        <span
+          key={`${word}-${match.index}`}
+          onClick={() => onWordClick(word)}
+          className="cursor-pointer text-purple-600 font-semibold hover:underline hover:bg-indigo-50 px-1 rounded"
+        >
+          {word}
+        </span>
+      );
+
+      lastIndex = regex.lastIndex;
+    }
+
+    const after = text.slice(lastIndex);
+    if (after) {
+      parts.push(after);
+    }
+
+    return parts;
+  }
+
+  function handleVocabClick(word) {
+    console.log("🟡 CLICK DETECTED:", word);
+    lookupDictionary(word);
+  }
+
+
+  async function lookupDictionary(word) {
+    console.log("🔵 lookupDictionary called with:", word);
+
+    try {
+      const resp = await fetch("http://127.0.0.1:5000/api/dictionary/lookup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ word }),
+      });
+
+      console.log("🟢 Response status:", resp.status);
+
+      const data = await resp.json();
+      console.log("🟣 Raw response JSON:", data);
+
+      if (!data.success || !data.entry) {
+        console.log("❌ Term not found:", word);
+        return;
+      }
+
+      console.log("📖 FOUND:");
+      console.log("Word:", word);
+      console.log("Pinyin:", data.entry.pinyin);
+      console.log("Definitions:", data.entry.definitions);
+
+    } catch (err) {
+      console.error("🔥 Dictionary lookup failed:", err);
+    }
+  }
+
+
   function clearConversation() {
     setMessages([]);
     try {
@@ -702,8 +777,8 @@ export default function App() {
                         {corr.original_sentence}
                       </div>
                       <div className="text-xs text-green-700 font-semibold mb-1">更自然的说法 (Natural way):</div>
-                      <div className="text-base font-medium text-slate-800 mb-2">
-                        {corr.corrected_sentence}
+                      <div className="text-base font-medium text-slate-800 mb-2 leading-relaxed">
+                        {renderAnchoredText(corr.corrected_sentence, handleVocabClick)}
                       </div>
                       {corr.explanation && (
                         <div className="text-sm text-orange-700 bg-white/50 p-2 rounded">

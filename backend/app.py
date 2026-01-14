@@ -16,9 +16,11 @@ def create_app():
     
     from .api.chat import chat_bp
     from .api.session import session_bp
+    from .api.dictionary import dictionary_bp
 
     app.register_blueprint(chat_bp, url_prefix='/api/chat')
     app.register_blueprint(session_bp, url_prefix='/api/end-session')
+    app.register_blueprint(dictionary_bp, url_prefix='/api/dictionary')
 
     # Initialize socketio with app FIRST
     socketio.init_app(app)
