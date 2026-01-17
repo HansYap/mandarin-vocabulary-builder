@@ -1,5 +1,5 @@
 from flask import Blueprint, request, jsonify
-from backend.state.store import transcripts, feedback, asr
+from backend.state.store import transcripts, feedback
 
 session_bp = Blueprint('session', __name__)
 
@@ -11,8 +11,6 @@ session_bp = Blueprint('session', __name__)
 def end_session():
     data = request.get_json() or {}
     session_id = data.get('session_id', 'default')
-    
-    asr.unload_model()
 
     # Get the stored transcript (you need to share it with chat)
     transcript = transcripts.get(session_id, [])

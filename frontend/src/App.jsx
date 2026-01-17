@@ -679,7 +679,12 @@ export default function App() {
           </div>
 
           <div className="bg-white p-3 rounded-lg shadow flex flex-col gap-2">
-            {error && <div className="text-sm text-red-600 p-3 bg-red-50 rounded">{error}</div>}
+            {error && (
+              <div className="p-2 bg-red-50 rounded border border-red-200">
+                <div className="text-xs text-red-600 font-semibold mb-1">❌ Error:</div>
+                <div className="text-sm text-red-800">{error}</div>
+              </div>
+            )}
 
             {sessionEnded && (
               <div className="p-3 mb-2 rounded-md border border-orange-300 bg-orange-50 text-orange-800 text-sm rounded">

@@ -8,7 +8,7 @@ import requests
 # feedback = FeedbackGenerator(llm)
 
 # MeloTTS API endpoint
-MELOTTS_API_URL = "http://localhost:8000/tts"
+MELOTTS_API_URL = "http://127.0.0.1:8000/tts"
 
 chat_bp = Blueprint('chat', __name__)
 
