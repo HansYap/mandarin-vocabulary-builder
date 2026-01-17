@@ -72,12 +72,12 @@ class DictionaryHandler:
         """The actual logic being offloaded to the thread pool"""
         translator, tokenizer = self._get_translator()
         
-        # 1️⃣ Tokenize the input
+        # 1️ Tokenize the input
         source_tokens = tokenizer.convert_ids_to_tokens(tokenizer.encode(text, add_special_tokens=False))
         print(f"DEBUG - Input text: {text}")
         print(f"DEBUG - Source tokens: {source_tokens}")
 
-        # 2️⃣ Translate using CTranslate2
+        # 2️ Translate using CTranslate2
         results = translator.translate_batch(
             [source_tokens],
             beam_size=1,
@@ -86,14 +86,14 @@ class DictionaryHandler:
             repetition_penalty=2.5
         )
 
-        # 3️⃣ Decode translation
+        # 3️ Decode translation
         target_tokens = results[0].hypotheses[0]
         print(f"DEBUG - Target tokens: {target_tokens}")
         
         translation = tokenizer.decode(tokenizer.convert_tokens_to_ids(target_tokens), skip_special_tokens=True)
         print(f"DEBUG - Decoded translation: '{translation}'")
 
-        # 4️⃣ Clean punctuation
+        # 4️ Clean punctuation
         if '(' in translation:
             translation = translation.split('(')[0]
     
@@ -182,21 +182,53 @@ class DictionaryHandler:
             
             traditional = parts[0]
             simplified = parts[1]
-            pinyin = line[bracket_start+1:bracket_end].strip()
+            raw_pinyin = line[bracket_start+1:bracket_end].strip()
+            pinyin = self._normalize_pinyin(raw_pinyin)
             
             # Parse definitions
             meanings_raw = line[bracket_end+1:].strip().strip('/')
-            definitions = [m.strip() for m in meanings_raw.split('/') if m.strip()]
+            definitions = []
+            classifier = None
             
-            return {
+            for meaning in meanings_raw.split('/'):
+                meaning = meaning.strip()
+                if not meaning:
+                    continue
+                
+                # Extract classifier (e.g., "CL:名[ming2]")
+                if meaning.startswith("CL:"):
+                    cl_part = meaning[3:]  # remove 'CL:'
+
+                    cl_matches = re.findall(
+                        r'([\u4e00-\u9fff]+)(?:\[([\u4e00-\u9fff]+)\])?\[(.+?)\]',
+                        cl_part
+                    )
+
+                    if cl_matches:
+                        classifier = [
+                            f"{trad}[{simp}][{pinyin}]" if simp else f"{trad}[{pinyin}]"
+                            for trad, simp, pinyin in cl_matches
+                        ]
+                    continue
+
+                definitions.append(meaning)
+            
+            entry = {
                 "is_generated": False,
                 "simplified": simplified,
                 "traditional": traditional,
                 "pinyin": pinyin,
                 "definitions": definitions,
+                "classifier": classifier,
                 "char_count": len(simplified),
                 "message": "Phrase found in dictionary",
             }
+            
+            if classifier:
+                entry["classifier"] = classifier
+                
+            return entry
+        
         except Exception as e:
             return None
     
@@ -274,6 +306,13 @@ class DictionaryHandler:
     def _is_chinese(self, text: str) -> bool:
         """Check if the string contains at least one Chinese character"""
         return bool(re.search(r'[\u4e00-\u9fff]', text))
+    
+    def _normalize_pinyin(self, pinyin: str) -> str:
+        """
+        Remove neutral tone marker (5) from CC-CEDICT pinyin.
+        Keeps tones 1–4.
+        """
+        return re.sub(r'(?<=[a-zA-ZüÜ])5\b', '', pinyin)
 
 # Singleton instance
 _dictionary_service = None

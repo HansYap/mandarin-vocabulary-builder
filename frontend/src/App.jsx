@@ -612,6 +612,17 @@ export default function App() {
     }
   }
 
+  // --- Helper: normalize classifier into an array for easy rendering ---
+  function classifierListFromEntry(entry) {
+    if (!entry || !entry.classifier) return [];
+    const cl = entry.classifier;
+    if (Array.isArray(cl)) return cl;
+    if (typeof cl === 'string') {
+      return cl.split(',').map(s => s.trim()).filter(Boolean);
+    }
+    return [];
+  }
+
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col">
       <header className="bg-white shadow p-4 flex items-center justify-between">
@@ -785,8 +796,7 @@ export default function App() {
                     isRecording 
                       ? "bg-red-500 text-white animate-pulse" 
                       : "bg-blue-500 text-white hover:bg-blue-600"
-                  }disabled:opacity-60 disabled:cursor-not-allowed`}
-                >
+                  }disabled:opacity-60 disabled:cursor-not-allowed`}>
                   {isRecording ? "⏹ Stop Speaking" : "🎤 Start Speaking"}
                 </button>
 
@@ -936,6 +946,26 @@ export default function App() {
                   </ul>
                 </div>
 
+                {/* NEW: Classifier section (styled like Definitions) */}
+                {(() => {
+                  const clList = classifierListFromEntry(dictionaryEntry);
+                  if (!clList || clList.length === 0) return null;
+
+                  return (
+                    <div className="border-t border-slate-200 pt-3 mt-3">
+                      <div className="text-xs font-semibold text-slate-600 mb-2">Classifier: (e.g. 一{clList[0]}{dictionaryEntry.simplified})</div>
+                      <ul className="space-y-1">
+                        {clList.map((cl, idx) => (
+                          <li key={idx} className="text-sm text-slate-700 flex gap-2">
+                            <span className="text-purple-500 font-medium">{idx + 1}.</span>
+                            <span>{cl}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  );
+                })()}
+
                 {dictionaryEntry.is_generated && (
                   <div className="mt-3 text-xs text-amber-600 bg-amber-50 p-2 rounded">
                     ⚡ AI-generated translation and pinyin
@@ -990,6 +1020,26 @@ export default function App() {
                         ))}
                       </ul>
                     </div>
+
+                    {/* NEW: Classifier section for mobile */}
+                    {(() => {
+                      const clList = classifierListFromEntry(dictionaryEntry);
+                      if (!clList || clList.length === 0) return null;
+
+                      return (
+                        <div className="border-t border-slate-200 pt-4 mt-4">
+                          <div className="text-sm font-semibold text-slate-600 mb-3">Classifier:</div>
+                          <ul className="space-y-2">
+                            {clList.map((cl, idx) => (
+                              <li key={idx} className="text-base text-slate-700 flex gap-3">
+                                <span className="text-purple-500 font-semibold">{idx + 1}.</span>
+                                <span>{cl}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      );
+                    })()}
 
                     {dictionaryEntry.is_generated && (
                       <div className="mt-4 text-sm text-amber-700 bg-amber-50 p-3 rounded-lg border border-amber-200">
