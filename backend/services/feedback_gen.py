@@ -33,7 +33,7 @@ class FeedbackGenerator:
         seen_vocab = set()
         
         # Process last 3 sentences for feedback
-        for sent in sentences_to_fix[-3:]:
+        for sent in sentences_to_fix:
             # 1. Get natural correction with highlights from LLM
             result_data = self.llm.correct_sentence(sent)
             

@@ -2,7 +2,7 @@ import os
 import re
 import eventlet
 import eventlet.tpool
-from typing import Optional, Dict
+from typing import Optional, Dict, List
 from pypinyin import pinyin, Style
 
 
@@ -10,9 +10,11 @@ class DictionaryHandler:
     """Fast dictionary lookup service for CC-CEDICT"""
     
     def __init__(self, dict_path="../data/cc-cedict.txt"):
-        self.simplified_index = {}  # Primary: simplified -> entry
-        self.traditional_index = {}  # Secondary: traditional -> entry
+        self.simplified_index = {}  # simplified -> [entry1, entry2, ...]
+        self.traditional_index = {}  # traditional -> [entry1, entry2, ...]
+        self.compound_count = {}    # Track compound frequency per (word, pinyin)
         self._load_dictionary(dict_path)
+        self._calculate_frequency_scores()
         
         # Translation model variable
         self.translator = None
@@ -24,7 +26,6 @@ class DictionaryHandler:
     def _get_translator(self):
         """Eventlet-safe lazy loading"""
         if self.loading_lock:
-            # Wait a tiny bit if already loading
             eventlet.sleep(0.1)
             
         if self.translator is None:
@@ -43,11 +44,9 @@ class DictionaryHandler:
             finally:
                 self.loading_lock = False
             
-        # Manage VRAM with Eventlet Timer
         if self.unload_timer:
             self.unload_timer.cancel()
         
-        # Schedule offloading after 5 mins of inactivity
         self.unload_timer = eventlet.spawn_after(300, self._unload_translation_model)
         
         return self.translator, self.tokenizer
@@ -63,84 +62,44 @@ class DictionaryHandler:
             torch.cuda.empty_cache()
 
     def _translate_phrase(self, text: str) -> str:
-        # Use eventlet.tpool.execute to run the heavy C++ translation 
-        # outside the main green loop. This prevents recursion/freezing.
         return eventlet.tpool.execute(self._do_inference, text)
-    
     
     def _do_inference(self, text: str) -> str:
         """The actual logic being offloaded to the thread pool"""
         translator, tokenizer = self._get_translator()
         
-        # 1️ Tokenize the input
         source_tokens = tokenizer.convert_ids_to_tokens(tokenizer.encode(text, add_special_tokens=False))
         print(f"DEBUG - Input text: {text}")
         print(f"DEBUG - Source tokens: {source_tokens}")
 
-        # 2️ Translate using CTranslate2
+        
         results = translator.translate_batch(
             [source_tokens],
-            beam_size=1,
+            beam_size=2,
             max_decoding_length=12,
-            length_penalty=0.6,
-            repetition_penalty=2.5
+            length_penalty=1.2,
+            repetition_penalty=2.3
         )
 
-        # 3️ Decode translation
         target_tokens = results[0].hypotheses[0]
         print(f"DEBUG - Target tokens: {target_tokens}")
         
         translation = tokenizer.decode(tokenizer.convert_tokens_to_ids(target_tokens), skip_special_tokens=True)
         print(f"DEBUG - Decoded translation: '{translation}'")
 
-        # 4️ Clean punctuation
         if '(' in translation:
             translation = translation.split('(')[0]
     
-        # Split on periods/exclamations but keep commas and "and"
         translation = translation.split('.')[0].split('!')[0].split(';')[0]
         
         if ',' in translation:
             parts = translation.split(',')
             first_part = parts[0].strip()
-            # If first part has 2+ words, it's probably complete
             if len(first_part.split()) >= 2:
                 translation = first_part
     
         final = translation.strip(".。!！, ")
         return final
-    
-    # MORE AGGRESIVE REPETITION PENALTY IF OPUS-MT GET TOO VERBOSE
-    # def _do_inference(self, text: str) -> str:
-    #     """The actual logic being offloaded to the thread pool"""
-    #     translator, tokenizer = self._get_translator()
-        
-    #     source_tokens = tokenizer.convert_ids_to_tokens(
-    #         tokenizer.encode(text, add_special_tokens=False)
-    #     )
-
-    #     results = translator.translate_batch(
-    #         [source_tokens],
-    #         beam_size=1,
-    #         max_decoding_length=8,   # Shorter to avoid repetition
-    #         length_penalty=0.8,       # Favor slightly longer but not too long
-    #         repetition_penalty=3.0    # Heavy penalty on repetition
-    #     )
-
-    #     target_tokens = results[0].hypotheses[0]
-    #     translation = tokenizer.decode(
-    #         tokenizer.convert_tokens_to_ids(target_tokens),
-    #         skip_special_tokens=True
-    #     )
-
-    #     # Stop at first comma or parenthesis
-    #     for delimiter in [',', '(', ';', '.', '!']:
-    #         if delimiter in translation:
-    #             translation = translation.split(delimiter)[0]
-    #             break
-        
-    #     return translation.strip(".。!！, ")
-    
     
     def _load_dictionary(self, path: str) -> None:
         """Load and index CC-CEDICT with multiple access patterns"""
@@ -168,14 +127,13 @@ class DictionaryHandler:
         print(f"  - Traditional index: {len(self.traditional_index)} keys")
     
     def _parse_line(self, line: str) -> Optional[Dict]:
-        """Parse a single CC-CEDICT line"""
+        """Parse a single CC-CEDICT line with classifier extraction"""
         try:
             bracket_start = line.find('[')
             bracket_end = line.find(']')
             if bracket_start == -1 or bracket_end == -1:
                 return None
             
-            # Parse components
             parts = line[:bracket_start].strip().split()
             if len(parts) < 2:
                 return None
@@ -185,7 +143,7 @@ class DictionaryHandler:
             raw_pinyin = line[bracket_start+1:bracket_end].strip()
             pinyin = self._normalize_pinyin(raw_pinyin)
             
-            # Parse definitions
+            # Parse definitions and extract classifier
             meanings_raw = line[bracket_end+1:].strip().strip('/')
             definitions = []
             classifier = None
@@ -198,12 +156,10 @@ class DictionaryHandler:
                 # Extract classifier (e.g., "CL:名[ming2]")
                 if meaning.startswith("CL:"):
                     cl_part = meaning[3:]  # remove 'CL:'
-
                     cl_matches = re.findall(
                         r'([\u4e00-\u9fff]+)(?:\[([\u4e00-\u9fff]+)\])?\[(.+?)\]',
                         cl_part
                     )
-
                     if cl_matches:
                         classifier = [
                             f"{trad}[{simp}][{pinyin}]" if simp else f"{trad}[{pinyin}]"
@@ -213,6 +169,9 @@ class DictionaryHandler:
 
                 definitions.append(meaning)
             
+            # Determine if this is a single character or compound
+            is_compound = len(simplified) > 1
+            
             entry = {
                 "is_generated": False,
                 "simplified": simplified,
@@ -221,71 +180,156 @@ class DictionaryHandler:
                 "definitions": definitions,
                 "classifier": classifier,
                 "char_count": len(simplified),
+                "is_compound": is_compound,
                 "message": "Phrase found in dictionary",
             }
             
-            if classifier:
-                entry["classifier"] = classifier
-                
             return entry
-        
+            
         except Exception as e:
             return None
     
     def _index_entry(self, entry: Dict) -> None:
-        """Index entry by both simplified and traditional"""
+        """Index entry and track compound frequency"""
         simplified = entry["simplified"]
         traditional = entry["traditional"]
+        pinyin = entry["pinyin"]
         
-        # Index by simplified (primary)
+        # Store as lists to handle multiple entries per word
         if simplified not in self.simplified_index:
-            self.simplified_index[simplified] = entry
+            self.simplified_index[simplified] = []
+        self.simplified_index[simplified].append(entry)
         
-        # Index by traditional (secondary)
-        if traditional != simplified and traditional not in self.traditional_index:
-            self.traditional_index[traditional] = entry
+        if traditional != simplified:
+            if traditional not in self.traditional_index:
+                self.traditional_index[traditional] = []
+            self.traditional_index[traditional].append(entry)
+        
+        # Track compound frequency for single-character base words
+        # e.g., "打電話" counts toward frequency of 打[da3]
+        if entry["is_compound"]:
+            base_char = simplified[0]  # First character
+            key = (base_char, pinyin)
+            if key not in self.compound_count:
+                self.compound_count[key] = 0
+            self.compound_count[key] += 1
     
-    def lookup(self, chinese_word: str, prefer_longer: bool = True) -> Optional[Dict]:
+    def _calculate_frequency_scores(self):
+        """Calculate frequency scores for single-character entries based on compound count"""
+        print("Calculating frequency scores...")
+        
+        for word, entries in self.simplified_index.items():
+            if len(entries) <= 1:
+                continue  # No ambiguity
+            
+            # Only score single-character words (where compounds matter)
+            if len(word) > 1:
+                continue
+            
+            for entry in entries:
+                pinyin = entry["pinyin"]
+                key = (word, pinyin)
+                
+                # Frequency = number of compound words using this pronunciation
+                compound_freq = self.compound_count.get(key, 0)
+                entry["frequency_score"] = compound_freq
+        
+        print("✓ Frequency scores calculated")
+    
+    def lookup(self, chinese_word: str, context: str = "", prefer_longer: bool = True) -> Dict:
         """
-        Lookup a Chinese word with intelligent matching
+        Lookup a Chinese word - returns ALL matching entries, ordered by frequency
         
         Args:
             chinese_word: The Chinese text to lookup
+            context: Not used currently, kept for API compatibility
             prefer_longer: If True, try to match longer phrases first
         
         Returns:
-            Dictionary entry with simplified, traditional, pinyin, definitions
+            Dictionary with 'found' flag and 'entries' list (sorted by frequency)
         """
         if not self._is_chinese(chinese_word):
             return self._not_found(chinese_word)
         
         # Try exact match first
-        result = self._exact_lookup(chinese_word)
-        if result:
+        entries = self._exact_lookup(chinese_word)
+        if entries:
+            # Sort by frequency score (highest first)
+            sorted_entries = self._sort_by_frequency(entries, chinese_word)
+            
             return {
                 "found": True,
-                **result
+                "query": chinese_word,
+                "entries": sorted_entries,
+                "count": len(sorted_entries)
             }
         
+        # Generate entry if not found
         if self._is_chinese(chinese_word):
             pinyin_list = pinyin(chinese_word, style=Style.TONE3)
             pinyin_str = " ".join([item[0] for item in pinyin_list])
             translation = self._translate_phrase(chinese_word)
 
-            return {
-                "found": True,
+            generated_entry = {
                 "is_generated": True,
                 "simplified": chinese_word,
                 "traditional": chinese_word,
                 "pinyin": pinyin_str,
                 "definitions": [translation],
-                "message": "Phrase not in dictionary; generated via OPUS-MT."
+                "message": "Phrase not in dictionary; generated via OPUS-MT.",
+                "confidence": "generated"
+            }
+            
+            return {
+                "found": True,
+                "query": chinese_word,
+                "entries": [generated_entry],
+                "count": 1
             }
         
         return self._not_found(chinese_word)
     
-    def _exact_lookup(self, word: str) -> Optional[Dict]:
-        """Exact dictionary lookup"""
+    def _sort_by_frequency(self, entries: List[Dict], word: str) -> List[Dict]:
+        """
+        Sort entries by frequency score and add confidence labels
+        """
+        # Make copies to avoid modifying original entries
+        sorted_entries = []
+        
+        for entry in entries:
+            entry_copy = entry.copy()
+            freq_score = entry_copy.get("frequency_score", 0)
+            
+            # Add metadata for frontend
+            if len(word) == 1:  # Single character - use frequency
+                entry_copy["sort_score"] = freq_score
+            else:  # Multi-character - keep original order
+                entry_copy["sort_score"] = 0
+            
+            sorted_entries.append(entry_copy)
+        
+        # Sort by frequency score (highest first)
+        sorted_entries.sort(key=lambda x: x["sort_score"], reverse=True)
+        
+        # Add confidence labels
+        if len(sorted_entries) > 1:
+            # Mark the most common one
+            max_score = sorted_entries[0]["sort_score"]
+            if max_score > 0:
+                sorted_entries[0]["confidence"] = "most common"
+                for i in range(1, len(sorted_entries)):
+                    sorted_entries[i]["confidence"] = "less common"
+            else:
+                # No frequency data, all equal
+                for entry in sorted_entries:
+                    entry["confidence"] = "see all meanings"
+        else:
+            sorted_entries[0]["confidence"] = "only meaning"
+        
+        return sorted_entries
+    
+    def _exact_lookup(self, word: str) -> Optional[List[Dict]]:
+        """Exact dictionary lookup - returns all matching entries"""
         # Try simplified first
         if word in self.simplified_index:
             return self.simplified_index[word]
@@ -300,6 +344,8 @@ class DictionaryHandler:
         return {
             "found": False,
             "query": word,
+            "entries": [],
+            "count": 0,
             "message": "Term not found"
         }
   
@@ -308,11 +354,9 @@ class DictionaryHandler:
         return bool(re.search(r'[\u4e00-\u9fff]', text))
     
     def _normalize_pinyin(self, pinyin: str) -> str:
-        """
-        Remove neutral tone marker (5) from CC-CEDICT pinyin.
-        Keeps tones 1–4.
-        """
+        """Remove neutral tone marker (5) from CC-CEDICT pinyin"""
         return re.sub(r'(?<=[a-zA-ZüÜ])5\b', '', pinyin)
+
 
 # Singleton instance
 _dictionary_service = None

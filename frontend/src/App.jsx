@@ -901,162 +901,289 @@ export default function App() {
       </main>
 
       {/* Desktop Popover */}
-        {!isMobile && popoverPosition && (
-          <div
-            ref={popoverRef}
-            style={{
-              position: 'absolute',
-              top: `${popoverPosition.top}px`,
-              left: `${popoverPosition.left}px`,
-              zIndex: 1000,
-            }}
-            className="w-80 bg-white rounded-lg shadow-2xl border-2 border-purple-200 p-4"
-          >
-            {dictionaryLoading ? (
-              // Pulsing skeleton placeholder
-              <DesktopDictionarySkeleton />
-            ) : dictionaryEntry && dictionaryEntry.found ? (
-              // real content (unchanged)
-              <div>
-                <div className="flex items-start justify-between mb-3">
-                  <div>
-                    <div className="text-2xl font-bold text-slate-800">{dictionaryEntry.simplified}</div>
-                    {dictionaryEntry.traditional !== dictionaryEntry.simplified && (
-                      <div className="text-lg text-slate-500">{dictionaryEntry.traditional}</div>
-                    )}
-                    <div className="text-sm text-purple-600 mt-1">{dictionaryEntry.pinyin}</div>
+      {!isMobile && popoverPosition && (
+        <div
+          ref={popoverRef}
+          style={{
+            position: 'absolute',
+            top: `${popoverPosition.top}px`,
+            left: `${popoverPosition.left}px`,
+            zIndex: 1000,
+          }}
+          className="w-80 bg-white rounded-lg shadow-2xl border-2 border-purple-200 p-4 max-h-96 overflow-y-auto"
+        >
+          {dictionaryLoading ? (
+            <DesktopDictionarySkeleton />
+          ) : dictionaryEntry && dictionaryEntry.found ? (
+            <div>
+              <div className="flex items-start justify-between mb-3">
+                <div>
+                  <div className="text-2xl font-bold text-slate-800">
+                    {dictionaryEntry.query || dictionaryEntry.simplified}
                   </div>
-                  <button
-                    onClick={closeDictionary}
-                    className="text-slate-400 hover:text-slate-600 text-xl leading-none"
-                  >
-                    ×
-                  </button>
                 </div>
-
-                <div className="border-t border-slate-200 pt-3">
-                  <div className="text-xs font-semibold text-slate-600 mb-2">Definitions:</div>
-                  <ul className="space-y-1">
-                    {dictionaryEntry.definitions.map((def, i) => (
-                      <li key={i} className="text-sm text-slate-700 flex gap-2">
-                        <span className="text-purple-500 font-medium">{i + 1}.</span>
-                        <span>{def}</span>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-
-                {/* NEW: Classifier section (styled like Definitions) */}
-                {(() => {
-                  const clList = classifierListFromEntry(dictionaryEntry);
-                  if (!clList || clList.length === 0) return null;
-
-                  return (
-                    <div className="border-t border-slate-200 pt-3 mt-3">
-                      <div className="text-xs font-semibold text-slate-600 mb-2">Classifier: (e.g. 一{clList[0]}{dictionaryEntry.simplified})</div>
-                      <ul className="space-y-1">
-                        {clList.map((cl, idx) => (
-                          <li key={idx} className="text-sm text-slate-700 flex gap-2">
-                            <span className="text-purple-500 font-medium">{idx + 1}.</span>
-                            <span>{cl}</span>
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  );
-                })()}
-
-                {dictionaryEntry.is_generated && (
-                  <div className="mt-3 text-xs text-amber-600 bg-amber-50 p-2 rounded">
-                    ⚡ AI-generated translation and pinyin
-                  </div>
-                )}
+                <button
+                  onClick={closeDictionary}
+                  className="text-slate-400 hover:text-slate-600 text-xl leading-none"
+                >
+                  ×
+                </button>
               </div>
-            ) : (
-              // not found / error
-              <div className="text-center py-4">
-                <div className="text-slate-600 mb-2">Word not found</div>
-                <div className="text-xs text-slate-400">{dictionaryEntry ? dictionaryEntry.message : "No entry"}</div>
-              </div>
-            )}
-          </div>
-        )}
 
-
-      {/* Mobile Bottom Sheet */}
-        {isMobile && (dictionaryLoading || dictionaryEntry) && (
-          <>
-            {/* Dimmed Overlay */}
-            <div
-              onClick={closeDictionary}
-              className="fixed inset-0 bg-black/40 z-40"
-            />
-
-            {/* Bottom Sheet */}
-            <div className="fixed bottom-0 left-0 right-0 bg-white rounded-t-2xl shadow-2xl z-50 max-h-[70vh] overflow-auto animate-slide-up">
-              <div className="p-5">
-                {dictionaryLoading ? (
-                  // Mobile skeleton
-                  <MobileDictionarySkeleton />
-                ) : dictionaryEntry && dictionaryEntry.found ? (
-                  // real content (unchanged)
-                  <div>
-                    <div className="mb-4">
-                      <div className="text-4xl font-bold text-slate-800 mb-2">{dictionaryEntry.simplified}</div>
-                      {dictionaryEntry.traditional !== dictionaryEntry.simplified && (
-                        <div className="text-2xl text-slate-500 mb-2">{dictionaryEntry.traditional}</div>
-                      )}
-                      <div className="text-lg text-purple-600">{dictionaryEntry.pinyin}</div>
-                    </div>
-
-                    <div className="border-t border-slate-200 pt-4">
-                      <div className="text-sm font-semibold text-slate-600 mb-3">Definitions:</div>
-                      <ul className="space-y-2">
-                        {dictionaryEntry.definitions.map((def, i) => (
-                          <li key={i} className="text-base text-slate-700 flex gap-3">
-                            <span className="text-purple-500 font-semibold">{i + 1}.</span>
-                            <span>{def}</span>
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-
-                    {/* NEW: Classifier section for mobile */}
-                    {(() => {
-                      const clList = classifierListFromEntry(dictionaryEntry);
-                      if (!clList || clList.length === 0) return null;
-
-                      return (
-                        <div className="border-t border-slate-200 pt-4 mt-4">
-                          <div className="text-sm font-semibold text-slate-600 mb-3">Classifier:</div>
-                          <ul className="space-y-2">
-                            {clList.map((cl, idx) => (
-                              <li key={idx} className="text-base text-slate-700 flex gap-3">
-                                <span className="text-purple-500 font-semibold">{idx + 1}.</span>
-                                <span>{cl}</span>
-                              </li>
-                            ))}
-                          </ul>
+              {/* Display all entries */}
+              {dictionaryEntry.entries && dictionaryEntry.entries.length > 0 ? (
+                <div className="space-y-4">
+                  {dictionaryEntry.entries.map((entry, entryIdx) => (
+                    <div 
+                      key={entryIdx} 
+                      className={`pb-4 ${
+                        entryIdx < dictionaryEntry.entries.length - 1 
+                          ? 'border-b border-slate-200' 
+                          : ''
+                      }`}
+                    >
+                      {/* Pinyin with confidence badge */}
+                      <div className="flex items-center gap-2 mb-2">
+                        <div className="text-sm text-purple-600 font-medium">
+                          {entry.pinyin}
                         </div>
-                      );
-                    })()}
-
-                    {dictionaryEntry.is_generated && (
-                      <div className="mt-4 text-sm text-amber-700 bg-amber-50 p-3 rounded-lg border border-amber-200">
-                        ⚡ AI-generated translation and pinyin
+                        {entry.confidence && (
+                          <span className={`text-xs px-2 py-0.5 rounded-full ${
+                            entry.confidence === 'most common' || entry.confidence === 'most likely'
+                              ? 'bg-green-100 text-green-700'
+                              : entry.confidence === 'less common' || entry.confidence === 'alternative'
+                              ? 'bg-slate-100 text-slate-600'
+                              : 'bg-blue-100 text-blue-700'
+                          }`}>
+                            {entry.confidence}
+                          </span>
+                        )}
                       </div>
-                    )}
+
+                      {/* Traditional (if different) */}
+                      {entry.traditional && entry.traditional !== entry.simplified && (
+                        <div className="text-sm text-slate-500 mb-2">
+                          {entry.traditional}
+                        </div>
+                      )}
+
+                      {/* Definitions */}
+                      <div className="mb-2">
+                        <div className="text-xs font-semibold text-slate-600 mb-1">
+                          Definitions & usage notes:
+                        </div>
+                        <ul className="space-y-1">
+                          {entry.definitions.map((def, i) => (
+                            <li key={i} className="text-sm text-slate-700 flex gap-2">
+                              <span className="text-purple-500 font-medium">{i + 1}.</span>
+                              <span>{def}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+
+                      {/* Classifier */}
+                      {(() => {
+                        const clList = classifierListFromEntry(entry);
+                        if (!clList || clList.length === 0) return null;
+
+                        return (
+                          <div className="mt-2">
+                            <div className="text-xs font-semibold text-slate-600 mb-1">
+                              Classifier: (e.g. 一{clList[0].split('[')[0]}{entry.simplified})
+                            </div>
+                            <ul className="space-y-1">
+                              {clList.map((cl, idx) => (
+                                <li key={idx} className="text-sm text-slate-700 flex gap-2">
+                                  <span className="text-purple-500 font-medium">{idx + 1}.</span>
+                                  <span>{cl}</span>
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+                        );
+                      })()}
+
+                      {/* AI-generated badge */}
+                      {entry.is_generated && (
+                        <div className="mt-2 text-xs text-amber-600 bg-amber-50 p-2 rounded">
+                          ⚡ AI-generated translation and pinyin
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                // Fallback for old single-entry format
+                <div>
+                  <div className="text-sm text-purple-600 mb-2">{dictionaryEntry.pinyin}</div>
+                  {dictionaryEntry.traditional !== dictionaryEntry.simplified && (
+                    <div className="text-sm text-slate-500 mb-2">{dictionaryEntry.traditional}</div>
+                  )}
+                  <div className="border-t border-slate-200 pt-3">
+                    <div className="text-xs font-semibold text-slate-600 mb-2">Definitions:</div>
+                    <ul className="space-y-1">
+                      {dictionaryEntry.definitions?.map((def, i) => (
+                        <li key={i} className="text-sm text-slate-700 flex gap-2">
+                          <span className="text-purple-500 font-medium">{i + 1}.</span>
+                          <span>{def}</span>
+                        </li>
+                      ))}
+                    </ul>
                   </div>
-                ) : (
-                  <div className="text-center py-8">
-                    <div className="text-lg text-slate-600 mb-2">Word not found</div>
-                    <div className="text-sm text-slate-400">{dictionaryEntry ? dictionaryEntry.message : ""}</div>
-                  </div>
-                )}
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="text-center py-4">
+              <div className="text-slate-600 mb-2">Word not found</div>
+              <div className="text-xs text-slate-400">
+                {dictionaryEntry ? dictionaryEntry.message : "No entry"}
               </div>
             </div>
-          </>
-        )}
+          )}
+        </div>
+      )}
+
+      {/* Mobile Bottom Sheet */}
+      {isMobile && (dictionaryLoading || dictionaryEntry) && (
+        <>
+          {/* Dimmed Overlay */}
+          <div
+            onClick={closeDictionary}
+            className="fixed inset-0 bg-black/40 z-40"
+          />
+
+          {/* Bottom Sheet */}
+          <div className="fixed bottom-0 left-0 right-0 bg-white rounded-t-2xl shadow-2xl z-50 max-h-[70vh] overflow-auto animate-slide-up">
+            <div className="p-5">
+              {dictionaryLoading ? (
+                <MobileDictionarySkeleton />
+              ) : dictionaryEntry && dictionaryEntry.found ? (
+                <div>
+                  {/* Word header */}
+                  <div className="mb-4">
+                    <div className="text-4xl font-bold text-slate-800 mb-2">
+                      {dictionaryEntry.query || dictionaryEntry.simplified}
+                    </div>
+                  </div>
+
+                  {/* Display all entries */}
+                  {dictionaryEntry.entries && dictionaryEntry.entries.length > 0 ? (
+                    <div className="space-y-6">
+                      {dictionaryEntry.entries.map((entry, entryIdx) => (
+                        <div 
+                          key={entryIdx} 
+                          className={`pb-6 ${
+                            entryIdx < dictionaryEntry.entries.length - 1 
+                              ? 'border-b border-slate-200' 
+                              : ''
+                          }`}
+                        >
+                          {/* Pinyin with confidence badge */}
+                          <div className="flex items-center gap-2 mb-3">
+                            <div className="text-lg text-purple-600 font-medium">
+                              {entry.pinyin}
+                            </div>
+                            {entry.confidence && (
+                              <span className={`text-sm px-2 py-1 rounded-full ${
+                                entry.confidence === 'most common' || entry.confidence === 'most likely'
+                                  ? 'bg-green-100 text-green-700'
+                                  : entry.confidence === 'less common' || entry.confidence === 'alternative'
+                                  ? 'bg-slate-100 text-slate-600'
+                                  : 'bg-blue-100 text-blue-700'
+                              }`}>
+                                {entry.confidence}
+                              </span>
+                            )}
+                          </div>
+
+                          {/* Traditional (if different) */}
+                          {entry.traditional && entry.traditional !== entry.simplified && (
+                            <div className="text-xl text-slate-500 mb-3">
+                              {entry.traditional}
+                            </div>
+                          )}
+
+                          {/* Definitions */}
+                          <div className="mb-3">
+                            <div className="text-sm font-semibold text-slate-600 mb-2">
+                              Definitions:
+                            </div>
+                            <ul className="space-y-2">
+                              {entry.definitions.map((def, i) => (
+                                <li key={i} className="text-base text-slate-700 flex gap-3">
+                                  <span className="text-purple-500 font-semibold">{i + 1}.</span>
+                                  <span>{def}</span>
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+
+                          {/* Classifier */}
+                          {(() => {
+                            const clList = classifierListFromEntry(entry);
+                            if (!clList || clList.length === 0) return null;
+
+                            return (
+                              <div className="mt-3">
+                                <div className="text-sm font-semibold text-slate-600 mb-2">
+                                  Classifier: (e.g. 一{clList[0].split('[')[0]}{entry.simplified})
+                                </div>
+                                <ul className="space-y-2">
+                                  {clList.map((cl, idx) => (
+                                    <li key={idx} className="text-base text-slate-700 flex gap-3">
+                                      <span className="text-purple-500 font-semibold">{idx + 1}.</span>
+                                      <span>{cl}</span>
+                                    </li>
+                                  ))}
+                                </ul>
+                              </div>
+                            );
+                          })()}
+
+                          {/* AI-generated badge */}
+                          {entry.is_generated && (
+                            <div className="mt-3 text-sm text-amber-700 bg-amber-50 p-3 rounded-lg border border-amber-200">
+                              ⚡ AI-generated translation and pinyin
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    // Fallback for old single-entry format
+                    <div>
+                      <div className="text-lg text-purple-600 mb-2">{dictionaryEntry.pinyin}</div>
+                      {dictionaryEntry.traditional !== dictionaryEntry.simplified && (
+                        <div className="text-xl text-slate-500 mb-3">{dictionaryEntry.traditional}</div>
+                      )}
+                      <div className="border-t border-slate-200 pt-4">
+                        <div className="text-sm font-semibold text-slate-600 mb-3">Definitions:</div>
+                        <ul className="space-y-2">
+                          {dictionaryEntry.definitions?.map((def, i) => (
+                            <li key={i} className="text-base text-slate-700 flex gap-3">
+                              <span className="text-purple-500 font-semibold">{i + 1}.</span>
+                              <span>{def}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className="text-center py-8">
+                  <div className="text-lg text-slate-600 mb-2">Word not found</div>
+                  <div className="text-sm text-slate-400">
+                    {dictionaryEntry ? dictionaryEntry.message : ""}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </>
+      )}
 
 
       <style jsx>{`
