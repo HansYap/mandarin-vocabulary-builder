@@ -8,10 +8,7 @@ from backend.services.schemas import SessionFeedback, VocabCard, SentenceCorrect
 class FeedbackGenerator:
     def __init__(self, llm_handler: LLMHandler):
         self.llm = llm_handler
-        # Re-use the dictionary from your LLMHandler
-        # self.dictionary = getattr(llm_handler, 'dictionary', {})
         
-
     def analyze_session(self, transcript: List[Dict]) -> Dict:
         
         # 1. Identify sentences that need correction
@@ -25,12 +22,8 @@ class FeedbackGenerator:
                 # Collect any sentence that has English or mixed language
                 if self._has_english(text) or self._has_mixed_language(text):
                     sentences_to_fix.append(text)
-
-        print(f"\n[PHASE 1] {len(sentences_to_fix)} sentences need correction\n")
         
         corrections = []
-        vocab_cards = []
-        seen_vocab = set()
         
         # Process last 3 sentences for feedback
         for sent in sentences_to_fix:
@@ -41,33 +34,12 @@ class FeedbackGenerator:
             highlights = result_data.get('highlights', [])
             note = result_data.get('note', '')
             
-            # === DEBUG OUTPUT ===
-            print(f"\n{'='*70}")
-            print(f"📝 Original:  {sent}")
-            print(f"✅ Corrected: {corrected_text}")
-            print(f"📚 Highlights ({len(highlights)} items):")
-            for i, h in enumerate(highlights, 1):
-                word = h.get('word', '?')
-                meaning = h.get('meaning', '?')
-                why = h.get('why', '')
-                category = h.get('category', 'new_vocab')
-                # Check if word exists in corrected text
-                exists = '✓' if word in corrected_text else '✗ NOT IN TEXT'
-                print(f"   {i}. '{word}' = {meaning} {exists}")
-                print(f"      Why: {why} ({category})")
-            if note:
-                print(f"💬 Note: {note}")
-            print(f"{'='*70}\n")
-            # === END DEBUG ===
-
             # 2. Process highlights for vocab cards and text anchoring
             corrected_with_anchors = corrected_text
             
             for h in highlights:
                 word = h.get('word', '')
-                meaning = h.get('meaning', '')
                 why = h.get('why', '')
-                category = h.get('category', 'new_vocab')
                 
                 # Skip if word doesn't exist in corrected text (validation)
                 if word not in corrected_text:
@@ -82,36 +54,6 @@ class FeedbackGenerator:
                         f"[[{word}]]", 
                         1  # Only first occurrence
                     )
-                
-                # Create vocab card with dictionary enrichment
-                dict_entry = self.dictionary.get(word)
-                
-                # Use word itself as key
-                vocab_key = word
-                
-                if vocab_key not in seen_vocab:
-                    # Get pinyin from dictionary, fallback to guessing
-                    if dict_entry:
-                        pinyin = dict_entry.get('pinyin', '')
-                        definitions = dict_entry.get('definitions', [meaning])
-                        # Prefer dict definition if available, else use LLM meaning
-                        full_meaning = definitions[0] if definitions else meaning
-                    else:
-                        pinyin = self._guess_pinyin(word)
-                        full_meaning = meaning
-                    
-                    vocab_cards.append(VocabCard(
-                        original_text=meaning,  # English meaning as "original"
-                        mandarin_text=word,
-                        pinyin=pinyin,
-                        example_sentence=corrected_text,
-                        difficulty_level=category,  # Use category as difficulty
-                        type=category,  # new_vocab, measure_word, collocation, idiom
-                        source='llm_highlight'
-                    ))
-                    seen_vocab.add(vocab_key)
-                    
-                    print(f"✅ Added vocab card: {word} ({pinyin}) = {full_meaning}")
 
             # 3. Store the correction (with anchors for UI)
             corrections.append(SentenceCorrection(
@@ -123,14 +65,14 @@ class FeedbackGenerator:
             ))
 
         # Assemble final response
+        # keep vocab card for now
         return SessionFeedback(
-            vocabulary=vocab_cards,
+            vocabulary=[],
             corrections=corrections,
-            summary=f"找到 {len(vocab_cards)} 个值得学习的词汇和 {len(corrections)} 个改进建议。"
+            summary=f"找到了 {len(corrections)} 个改进建议。"
         ).model_dump()
 
-    # --- HELPER METHODS ---
-    
+    # helper methods
     def _has_english(self, text: str) -> bool:
         """Check if text contains English"""
         return bool(re.search(r'[a-zA-Z]', text))
