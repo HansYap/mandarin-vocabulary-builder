@@ -149,7 +149,7 @@ async def transcribe_audio(file: UploadFile = File(...)):
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
 
-
+# TO BE IMPLEMENTED
 @app.post("/unload")
 async def unload_model():
     """Unload model from VRAM to free memory"""

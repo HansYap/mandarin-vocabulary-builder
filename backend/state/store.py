@@ -6,7 +6,6 @@ llm = LLMHandler()
 feedback = FeedbackGenerator(llm)
 
 # Shared state dictionaries (moved from store.py)
-partial_transcripts = {}
 transcripts = {}
 conversation_histories = {}
 

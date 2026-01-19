@@ -1,7 +1,6 @@
 from flask import request
 from flask_socketio import emit, join_room
 from backend.app import socketio
-from backend.state.store import partial_transcripts
 import requests
 from io import BytesIO
 
@@ -10,7 +9,7 @@ session_chunks = {}
 
 ASR_SERVICE_URL = "http://127.0.0.1:5001/transcribe"
 
-
+# frontend does a "socket.on("connect")", socketio server sees the "connect" and triggers this function
 @socketio.on('connect')
 def handle_connect():
     print("=" * 50)
@@ -42,8 +41,6 @@ def start_audio_session(data):
     join_room(session_id)
     print(f"   ✅ Joined room: {session_id}")
     
-    partial_transcripts[session_id] = ""
-    
     # Clear any previous chunks for this session
     session_chunks[session_id] = []
     
@@ -67,7 +64,7 @@ def handle_audio_chunk(data):
         
         print(f"📦 Audio chunk received - Session: {session_id[:8]}... | Size: {chunk_size} bytes")
         
-        # Accumulate the chunk
+        # Accumulate the chunk and check first to prevent crashes
         if session_id not in session_chunks:
             session_chunks[session_id] = []
         session_chunks[session_id].append(chunk)
@@ -110,6 +107,7 @@ def finalize_audio_session(data):
             }, room=session_id)
             return
         
+        # send chunks early while user speaking to avoid browser holding all the chunks in memory 
         combined_webm = b''.join(session_chunks[session_id])
         print(f"🔗 Combined {len(session_chunks[session_id])} chunks ({len(combined_webm)} bytes)")
         
@@ -141,7 +139,6 @@ def finalize_audio_session(data):
         print(f"   📝 Frontend will {'auto-submit' if auto_submit else 'wait for user confirmation'}")
         
         # Clean up
-        partial_transcripts[session_id] = ""
         session_chunks[session_id] = []
         
     except requests.exceptions.Timeout:
@@ -181,6 +178,7 @@ def handle_confirm_transcript(data):
     print("✅ CONFIRM TRANSCRIPT EVENT RECEIVED")
     print(f"   Data: {data}")
     
+    #for debugging to see the edited text
     session_id = data.get("session_id", "default")
     edited_text = data.get("text", "")
     

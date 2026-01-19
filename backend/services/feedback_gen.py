@@ -1,6 +1,6 @@
 import json
 import re
-from typing import List, Dict, Optional
+from typing import List, Dict
 from backend.services.llm_handler import LLMHandler
 from backend.services.schemas import SessionFeedback, VocabCard, SentenceCorrection
 
@@ -9,7 +9,7 @@ class FeedbackGenerator:
     def __init__(self, llm_handler: LLMHandler):
         self.llm = llm_handler
         # Re-use the dictionary from your LLMHandler
-        self.dictionary = getattr(llm_handler, 'dictionary', {})
+        # self.dictionary = getattr(llm_handler, 'dictionary', {})
         
 
     def analyze_session(self, transcript: List[Dict]) -> Dict:
@@ -86,7 +86,7 @@ class FeedbackGenerator:
                 # Create vocab card with dictionary enrichment
                 dict_entry = self.dictionary.get(word)
                 
-                # Use word itself as key (since we're not mapping EN→ZH anymore)
+                # Use word itself as key
                 vocab_key = word
                 
                 if vocab_key not in seen_vocab:

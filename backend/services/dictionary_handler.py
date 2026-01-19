@@ -236,14 +236,13 @@ class DictionaryHandler:
         
         print("✓ Frequency scores calculated")
     
-    def lookup(self, chinese_word: str, context: str = "", prefer_longer: bool = True) -> Dict:
+    def lookup(self, chinese_word: str, context: str = "") -> Dict:
         """
         Lookup a Chinese word - returns ALL matching entries, ordered by frequency
         
         Args:
             chinese_word: The Chinese text to lookup
             context: Not used currently, kept for API compatibility
-            prefer_longer: If True, try to match longer phrases first
         
         Returns:
             Dictionary with 'found' flag and 'entries' list (sorted by frequency)

@@ -2,11 +2,6 @@ from flask import Blueprint, request, jsonify
 from backend.state.store import transcripts, conversation_histories, llm
 import requests
 
-# Create your handlers once (or you can lazily create per-request) (RMBR SINGLETON)
-# asr = ASRHandler()
-# llm = LLMHandler()
-# feedback = FeedbackGenerator(llm)
-
 # MeloTTS API endpoint
 MELOTTS_API_URL = "http://127.0.0.1:8000/tts"
 
@@ -15,16 +10,14 @@ chat_bp = Blueprint('chat', __name__)
 @chat_bp.route('', methods=['POST'])
 @chat_bp.route('/', methods=['POST'])
 def chat():
-    """
-    UPDATED: Now accepts both original text and edited text.
-    Frontend can send either auto-transcribed or user-edited text.
-    """
+   
+   # silent=true to return none if request body not valid json, prevent crashes
     data = request.get_json(silent=True) or {}
     
     user_input = data.get('text') or data.get('message')
     session_id = data.get('session_id', 'default')
-    is_edited = data.get('is_edited', False)  # NEW: Track if user edited the text
-    original_text = data.get('original_text', None)  # NEW: Keep original for logging/analysis
+    is_edited = data.get('is_edited', False)  # Track if user edited the text via the "Manual" ASR feature
+    original_text = data.get('original_text', None)  # keep original for logging/analysis 'just in case'
 
     if not user_input:
         return jsonify({
@@ -72,12 +65,12 @@ def chat():
             audio_chunks = []
             for chunk in tts_response.iter_content(chunk_size=4096):
                 if chunk:
-                    #Replace audio_chunks.append(chunk), With socketio.emit("audio_chunk", chunk) for true real time streaming
+                    #Suggestion: Replace audio_chunks.append(chunk), With socketio.emit("audio_chunk", chunk) for true real time streaming
                     audio_chunks.append(chunk)
             
             audio_data = b''.join(audio_chunks)
             
-            # Only base64 encode if needed - consider direct binary stream instead
+            # convert to base64 to store raw bytes in json and url for frontend to play audio
             import base64
             audio_base64 = base64.b64encode(audio_data).decode('utf-8')
             audio_url = f"data:audio/wav;base64,{audio_base64}"
@@ -93,5 +86,5 @@ def chat():
         'transcript': user_input,
         'session_id': session_id,
         'audio': audio_url,
-        'was_edited': is_edited  # NEW: Let frontend know if this was edited
+        'was_edited': is_edited  
     })

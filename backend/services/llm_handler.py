@@ -1,79 +1,18 @@
 import requests
 import json
 import re
-import os
 
 
 class LLMHandler:
-    def __init__(self, dict_path="../data/cc-cedict.txt"):
-        # 1. Load Dictionary (Fast & Deterministic)
-        self.dictionary = self._load_cedict(dict_path)
+    def __init__(self):
         
-        # 2. LLM Config
         self.ollama_url = "http://127.0.0.1:11434/api/generate"
         self.chat_model = "qwen2.5:1.5b"
         self.feedback_model = "qwen2.5:3b"
 
-    # -------------------------------------------------------
-    # DICTIONARY LOADING
-    # -------------------------------------------------------
-    def _load_cedict(self, path):
-        current_dir = os.path.dirname(os.path.abspath(__file__))
-        full_path = os.path.join(current_dir, path)
-        
-        if not os.path.exists(full_path):
-            print(f"Warning: Dictionary file {full_path} not found. Running in LLM-only mode.")
-            return {}
-            
-        print("Loading Dictionary... (takes ~1s)")
-        cedict = {}
-        with open(full_path, 'r', encoding='utf-8') as f:
-            for line in f:
-                if line.startswith('#') or line.startswith('%') or not line.strip(): 
-                    continue
-                
-                try:
-                    bracket_start = line.find('[')
-                    bracket_end = line.find(']')
-                    if bracket_start == -1 or bracket_end == -1: 
-                        continue
-                    
-                    parts = line[:bracket_start].strip().split()
-                    if len(parts) < 2: 
-                        continue
-                    
-                    traditional = parts[0]
-                    simplified = parts[1]
-                    pinyin = line[bracket_start+1:bracket_end].strip()
-                    
-                    meanings_raw = line[bracket_end+1:].strip().strip('/')
-                    meanings = [m.strip() for m in meanings_raw.split('/') if m.strip()]
-                    
-                    entry = {
-                        "simplified": simplified,
-                        "traditional": traditional,
-                        "pinyin": pinyin,
-                        "definitions": meanings
-                    }
-
-                    # Index by simplified Chinese (primary key)
-                    if simplified not in cedict:
-                        cedict[simplified] = entry
-                    
-                    # Also index by traditional (for lookup flexibility)
-                    if traditional != simplified and traditional not in cedict:
-                        cedict[traditional] = entry
-
-                except Exception:
-                    continue
-        
-        print(f"Dictionary loaded: {len(cedict)} entries.")
-        return cedict
-
-    # -------------------------------------------------------
-    # PUBLIC: Get Response (Conversation)
-    # -------------------------------------------------------
+    
     def get_response(self, user_message, conversation_history):
+        """Get user llm chat response"""
         try:
             context = self._build_context(conversation_history)
 
@@ -122,9 +61,7 @@ class LLMHandler:
             print(f"LLM Error: {e}")
             return "系统好像连不上，你可以再试一次吗？"
 
-    # -------------------------------------------------------
-    # PUBLIC: Correct Sentence (NEW APPROACH)
-    # -------------------------------------------------------
+    # user feedback model to correct sentences
     def correct_sentence(self, broken_sentence):
         """
         NEW: Natural correction with smart highlighting.
@@ -282,9 +219,7 @@ class LLMHandler:
                 "note": f"Error: {str(e)}"
             }
 
-    # -------------------------------------------------------
-    # HELPERS
-    # -------------------------------------------------------
+    # helper functions
     def _build_context(self, history):
         """Converts conversation history into XML-tag structure."""
         formatted = []
@@ -296,9 +231,8 @@ class LLMHandler:
         return "\n".join(formatted)
 
     def _safe_parse_response(self, response):
-        """Modified for non-streaming JSON mode"""
+        """ensure response from llm is valid and usable"""
         try:
-            # Since stream=False, the entire body is one JSON object
             data = response.json()
             return data.get("response", "")
         except Exception as e:

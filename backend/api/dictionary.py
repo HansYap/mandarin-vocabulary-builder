@@ -12,7 +12,6 @@ def lookup_word():
     Request body:
     {
         "word": "预订",
-        "prefer_longer": true  // optional, default true
     }
     
     Response:
@@ -31,7 +30,6 @@ def lookup_word():
     try:
         data = request.get_json()
         word = data.get('word', '').strip()
-        prefer_longer = data.get('prefer_longer', True)
         
         if not word:
             return jsonify({
@@ -40,7 +38,7 @@ def lookup_word():
             }), 400
         
         dict_service = get_dictionary_service()
-        result = dict_service.lookup(word, prefer_longer=prefer_longer)
+        result = dict_service.lookup(word)
         
         if result.get("found"):
             return jsonify({
