@@ -1,12 +1,9 @@
 import React, { useEffect, useRef, useState } from "react";
 import { v4 as uuidv4 } from "uuid";
 import { io } from "socket.io-client";
-import Spinner from "./components/Spinner";
-import {
-  DesktopDictionarySkeleton,
-  MobileDictionarySkeleton
-} from "./components/dictionary/DictionarySkeletons";
-
+import Spinner from "./components/ui/Spinner";
+import { useDictionary } from './hooks/useDictionary';
+import DictionaryContainer from './components/dictionary/DictionaryContainer';
 
 const SOCKET_URL = "http://127.0.0.1:5000";
 
@@ -25,11 +22,6 @@ export default function App() {
   const [isRecording, setIsRecording] = useState(false);
   const [liveTranscript, setLiveTranscript] = useState("");
   
-  // Dictionary lookup state
-  const [dictionaryEntry, setDictionaryEntry] = useState(null);
-  const [dictionaryLoading, setDictionaryLoading] = useState(false);
-  const [popoverPosition, setPopoverPosition] = useState(null);
-  const [isMobile, setIsMobile] = useState(false);
 
   const listRef = useRef(null);
   const audioRef = useRef(null);
@@ -37,34 +29,15 @@ export default function App() {
   const mediaRecorderRef = useRef(null);
   const streamRef = useRef(null);
   const editTextareaRef = useRef(null);
-  const popoverRef = useRef(null);
-  const dictionaryAbortRef = useRef(null);
 
-
-  // Detect mobile
-  useEffect(() => {
-    const checkMobile = () => {
-      setIsMobile(window.innerWidth < 768);
-    };
-    checkMobile();
-    window.addEventListener('resize', checkMobile);
-    return () => window.removeEventListener('resize', checkMobile);
-  }, []);
-
-  // Close dictionary on outside click (desktop only)
-  useEffect(() => {
-    if (!isMobile && popoverPosition) {
-      const handleClickOutside = (e) => {
-        if (popoverRef.current && !popoverRef.current.contains(e.target)) {
-          closeDictionary();
-        }
-      };
-
-      document.addEventListener("mousedown", handleClickOutside);
-      return () => document.removeEventListener("mousedown", handleClickOutside);
-    }
-  }, [popoverPosition, isMobile]);
-
+  const {
+    dictionaryEntry,
+    dictionaryLoading,
+    popoverPosition,
+    isMobile,
+    lookupDictionary,
+    closeDictionary,
+  } = useDictionary();
 
   useEffect(() => {
     if (listRef.current) {
@@ -449,78 +422,6 @@ export default function App() {
     }
   }
 
-  async function lookupDictionary(word, event) {
-    console.log("🔵 lookupDictionary called with:", word);
-
-    // Abort previous request
-    if (dictionaryAbortRef.current) {
-      dictionaryAbortRef.current.abort();
-    }
-
-    const controller = new AbortController();
-    dictionaryAbortRef.current = controller;
-
-    // Position popover immediately (desktop)
-    if (!isMobile && event) {
-      const rect = event.target.getBoundingClientRect();
-      setPopoverPosition({
-        top: rect.bottom + window.scrollY + 8,
-        left: rect.left + window.scrollX,
-      });
-    }
-
-    setDictionaryEntry(null);
-    setDictionaryLoading(true);
-
-    try {
-      const resp = await fetch(
-        "http://127.0.0.1:5000/api/dictionary/lookup",
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ word }),
-          signal: controller.signal,
-        }
-      );
-
-      const data = await resp.json();
-
-      if (!controller.signal.aborted) {
-        if (data.success && data.entry) {
-          setDictionaryEntry(data.entry);
-        } else {
-          setDictionaryEntry({
-            found: false,
-            message: data.error || "Word not found",
-          });
-        }
-      }
-    } catch (err) {
-      if (err.name !== "AbortError") {
-        console.error("🔥 Dictionary lookup failed:", err);
-        setDictionaryEntry({
-          found: false,
-          message: "Dictionary service unavailable",
-        });
-      }
-    } finally {
-      if (!controller.signal.aborted) {
-        setDictionaryLoading(false);
-      }
-    }
-  }
-
-  function closeDictionary() {
-    // Abort in-flight request
-    if (dictionaryAbortRef.current) {
-      dictionaryAbortRef.current.abort();
-      dictionaryAbortRef.current = null;
-    }
-
-    setDictionaryLoading(false);
-    setDictionaryEntry(null);
-    setPopoverPosition(null);
-  }
 
   function renderAnchoredText(text, onWordClick) {
     if (!text) return null;
@@ -610,17 +511,6 @@ export default function App() {
     if (audioRef.current) {
       audioRef.current.pause();
     }
-  }
-
-  // --- Helper: normalize classifier into an array for easy rendering ---
-  function classifierListFromEntry(entry) {
-    if (!entry || !entry.classifier) return [];
-    const cl = entry.classifier;
-    if (Array.isArray(cl)) return cl;
-    if (typeof cl === 'string') {
-      return cl.split(',').map(s => s.trim()).filter(Boolean);
-    }
-    return [];
   }
 
   return (
@@ -899,306 +789,18 @@ export default function App() {
           </div>
         )}
       </main>
-
-      {/* Desktop Popover */}
-      {!isMobile && popoverPosition && (
-        <div
-          ref={popoverRef}
-          style={{
-            position: 'absolute',
-            top: `${popoverPosition.top}px`,
-            left: `${popoverPosition.left}px`,
-            zIndex: 1000,
-          }}
-          className="w-80 bg-white rounded-lg shadow-2xl border-2 border-purple-200 p-4 max-h-96 overflow-y-auto"
-        >
-          {dictionaryLoading ? (
-            <DesktopDictionarySkeleton />
-          ) : dictionaryEntry && dictionaryEntry.found ? (
-            <div>
-              <div className="flex items-start justify-between mb-3">
-                <div>
-                  <div className="text-2xl font-bold text-slate-800">
-                    {dictionaryEntry.query || dictionaryEntry.simplified}
-                  </div>
-                </div>
-                <button
-                  onClick={closeDictionary}
-                  className="text-slate-400 hover:text-slate-600 text-xl leading-none"
-                >
-                  ×
-                </button>
-              </div>
-
-              {/* Display all entries */}
-              {dictionaryEntry.entries && dictionaryEntry.entries.length > 0 ? (
-                <div className="space-y-4">
-                  {dictionaryEntry.entries.map((entry, entryIdx) => (
-                    <div 
-                      key={entryIdx} 
-                      className={`pb-4 ${
-                        entryIdx < dictionaryEntry.entries.length - 1 
-                          ? 'border-b border-slate-200' 
-                          : ''
-                      }`}
-                    >
-                      {/* Pinyin with confidence badge */}
-                      <div className="flex items-center gap-2 mb-2">
-                        <div className="text-sm text-purple-600 font-medium">
-                          {entry.pinyin}
-                        </div>
-                        {entry.confidence && (
-                          <span className={`text-xs px-2 py-0.5 rounded-full ${
-                            entry.confidence === 'most common' || entry.confidence === 'most likely'
-                              ? 'bg-green-100 text-green-700'
-                              : entry.confidence === 'less common' || entry.confidence === 'alternative'
-                              ? 'bg-slate-100 text-slate-600'
-                              : 'bg-blue-100 text-blue-700'
-                          }`}>
-                            {entry.confidence}
-                          </span>
-                        )}
-                      </div>
-
-                      {/* Traditional (if different) */}
-                      {entry.traditional && entry.traditional !== entry.simplified && (
-                        <div className="text-sm text-slate-500 mb-2">
-                          {entry.traditional}
-                        </div>
-                      )}
-
-                      {/* Definitions */}
-                      <div className="mb-2">
-                        <div className="text-xs font-semibold text-slate-600 mb-1">
-                          Definitions & usage notes:
-                        </div>
-                        <ul className="space-y-1">
-                          {entry.definitions.map((def, i) => (
-                            <li key={i} className="text-sm text-slate-700 flex gap-2">
-                              <span className="text-purple-500 font-medium">{i + 1}.</span>
-                              <span>{def}</span>
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
-
-                      {/* Classifier */}
-                      {(() => {
-                        const clList = classifierListFromEntry(entry);
-                        if (!clList || clList.length === 0) return null;
-
-                        return (
-                          <div className="mt-2">
-                            <div className="text-xs font-semibold text-slate-600 mb-1">
-                              Classifier: (e.g. 一{clList[0].split('[')[0]}{entry.simplified})
-                            </div>
-                            <ul className="space-y-1">
-                              {clList.map((cl, idx) => (
-                                <li key={idx} className="text-sm text-slate-700 flex gap-2">
-                                  <span className="text-purple-500 font-medium">{idx + 1}.</span>
-                                  <span>{cl}</span>
-                                </li>
-                              ))}
-                            </ul>
-                          </div>
-                        );
-                      })()}
-
-                      {/* AI-generated badge */}
-                      {entry.is_generated && (
-                        <div className="mt-2 text-xs text-amber-600 bg-amber-50 p-2 rounded">
-                          ⚡ AI-generated translation and pinyin
-                        </div>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                // Fallback for old single-entry format
-                <div>
-                  <div className="text-sm text-purple-600 mb-2">{dictionaryEntry.pinyin}</div>
-                  {dictionaryEntry.traditional !== dictionaryEntry.simplified && (
-                    <div className="text-sm text-slate-500 mb-2">{dictionaryEntry.traditional}</div>
-                  )}
-                  <div className="border-t border-slate-200 pt-3">
-                    <div className="text-xs font-semibold text-slate-600 mb-2">Definitions:</div>
-                    <ul className="space-y-1">
-                      {dictionaryEntry.definitions?.map((def, i) => (
-                        <li key={i} className="text-sm text-slate-700 flex gap-2">
-                          <span className="text-purple-500 font-medium">{i + 1}.</span>
-                          <span>{def}</span>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                </div>
-              )}
-            </div>
-          ) : (
-            <div className="text-center py-4">
-              <div className="text-slate-600 mb-2">Word not found</div>
-              <div className="text-xs text-slate-400">
-                {dictionaryEntry ? dictionaryEntry.message : "No entry"}
-              </div>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Mobile Bottom Sheet */}
-      {isMobile && (dictionaryLoading || dictionaryEntry) && (
-        <>
-          {/* Dimmed Overlay */}
-          <div
-            onClick={closeDictionary}
-            className="fixed inset-0 bg-black/40 z-40"
-          />
-
-          {/* Bottom Sheet */}
-          <div className="fixed bottom-0 left-0 right-0 bg-white rounded-t-2xl shadow-2xl z-50 max-h-[70vh] overflow-auto animate-slide-up">
-            <div className="p-5">
-              {dictionaryLoading ? (
-                <MobileDictionarySkeleton />
-              ) : dictionaryEntry && dictionaryEntry.found ? (
-                <div>
-                  {/* Word header */}
-                  <div className="mb-4">
-                    <div className="text-4xl font-bold text-slate-800 mb-2">
-                      {dictionaryEntry.query || dictionaryEntry.simplified}
-                    </div>
-                  </div>
-
-                  {/* Display all entries */}
-                  {dictionaryEntry.entries && dictionaryEntry.entries.length > 0 ? (
-                    <div className="space-y-6">
-                      {dictionaryEntry.entries.map((entry, entryIdx) => (
-                        <div 
-                          key={entryIdx} 
-                          className={`pb-6 ${
-                            entryIdx < dictionaryEntry.entries.length - 1 
-                              ? 'border-b border-slate-200' 
-                              : ''
-                          }`}
-                        >
-                          {/* Pinyin with confidence badge */}
-                          <div className="flex items-center gap-2 mb-3">
-                            <div className="text-lg text-purple-600 font-medium">
-                              {entry.pinyin}
-                            </div>
-                            {entry.confidence && (
-                              <span className={`text-sm px-2 py-1 rounded-full ${
-                                entry.confidence === 'most common' || entry.confidence === 'most likely'
-                                  ? 'bg-green-100 text-green-700'
-                                  : entry.confidence === 'less common' || entry.confidence === 'alternative'
-                                  ? 'bg-slate-100 text-slate-600'
-                                  : 'bg-blue-100 text-blue-700'
-                              }`}>
-                                {entry.confidence}
-                              </span>
-                            )}
-                          </div>
-
-                          {/* Traditional (if different) */}
-                          {entry.traditional && entry.traditional !== entry.simplified && (
-                            <div className="text-xl text-slate-500 mb-3">
-                              {entry.traditional}
-                            </div>
-                          )}
-
-                          {/* Definitions */}
-                          <div className="mb-3">
-                            <div className="text-sm font-semibold text-slate-600 mb-2">
-                              Definitions:
-                            </div>
-                            <ul className="space-y-2">
-                              {entry.definitions.map((def, i) => (
-                                <li key={i} className="text-base text-slate-700 flex gap-3">
-                                  <span className="text-purple-500 font-semibold">{i + 1}.</span>
-                                  <span>{def}</span>
-                                </li>
-                              ))}
-                            </ul>
-                          </div>
-
-                          {/* Classifier */}
-                          {(() => {
-                            const clList = classifierListFromEntry(entry);
-                            if (!clList || clList.length === 0) return null;
-
-                            return (
-                              <div className="mt-3">
-                                <div className="text-sm font-semibold text-slate-600 mb-2">
-                                  Classifier: (e.g. 一{clList[0].split('[')[0]}{entry.simplified})
-                                </div>
-                                <ul className="space-y-2">
-                                  {clList.map((cl, idx) => (
-                                    <li key={idx} className="text-base text-slate-700 flex gap-3">
-                                      <span className="text-purple-500 font-semibold">{idx + 1}.</span>
-                                      <span>{cl}</span>
-                                    </li>
-                                  ))}
-                                </ul>
-                              </div>
-                            );
-                          })()}
-
-                          {/* AI-generated badge */}
-                          {entry.is_generated && (
-                            <div className="mt-3 text-sm text-amber-700 bg-amber-50 p-3 rounded-lg border border-amber-200">
-                              ⚡ AI-generated translation and pinyin
-                            </div>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  ) : (
-                    // Fallback for old single-entry format
-                    <div>
-                      <div className="text-lg text-purple-600 mb-2">{dictionaryEntry.pinyin}</div>
-                      {dictionaryEntry.traditional !== dictionaryEntry.simplified && (
-                        <div className="text-xl text-slate-500 mb-3">{dictionaryEntry.traditional}</div>
-                      )}
-                      <div className="border-t border-slate-200 pt-4">
-                        <div className="text-sm font-semibold text-slate-600 mb-3">Definitions:</div>
-                        <ul className="space-y-2">
-                          {dictionaryEntry.definitions?.map((def, i) => (
-                            <li key={i} className="text-base text-slate-700 flex gap-3">
-                              <span className="text-purple-500 font-semibold">{i + 1}.</span>
-                              <span>{def}</span>
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              ) : (
-                <div className="text-center py-8">
-                  <div className="text-lg text-slate-600 mb-2">Word not found</div>
-                  <div className="text-sm text-slate-400">
-                    {dictionaryEntry ? dictionaryEntry.message : ""}
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
-        </>
-      )}
+      
+      {/* Desktop Popover & Mobile Bottom Sheet */}
+      <DictionaryContainer
+        entry={dictionaryEntry}
+        loading={dictionaryLoading}
+        position={popoverPosition}
+        isMobile={isMobile}
+        onClose={closeDictionary}
+      />
 
 
       <style jsx>{`
-        @keyframes slide-up {
-          from {
-            transform: translateY(100%);
-          }
-          to {
-            transform: translateY(0);
-          }
-        }
-        .animate-slide-up {
-          animation: slide-up 0.3s ease-out;
-        }
-
         @keyframes bounce {
           0%, 80%, 100% { transform: translateY(0); }
           40% { transform: translateY(-5px); }

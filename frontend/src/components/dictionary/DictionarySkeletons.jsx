@@ -1,5 +1,5 @@
 // src/components/dictionary/DictionarySkeletons.jsx
-import { SkeletonBlock, SkeletonText } from "../Skeleton";
+import { SkeletonBlock, SkeletonText } from "../ui/Skeleton";
 
 export const DesktopDictionarySkeleton = () => (
   <div className="space-y-4">
