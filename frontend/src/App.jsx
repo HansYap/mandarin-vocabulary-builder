@@ -1,20 +1,19 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { use, useEffect, useRef, useState } from "react";
 import { v4 as uuidv4 } from "uuid";
 import { io } from "socket.io-client";
 import Spinner from "./components/ui/Spinner";
 import { useDictionary } from './hooks/useDictionary';
 import DictionaryContainer from './components/dictionary/DictionaryContainer';
+import { useSession } from "./hooks/useSession";
+import FeedbackSidebar from "./components/feedback/FeedbackSidebar";
 
 const SOCKET_URL = "http://127.0.0.1:5000";
 
 export default function App() {
-  const [sessionId, setSessionId] = useState(() => uuidv4());
+  
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
-  const [endingSession, setEndingSession] = useState(false);
-  const [feedback, setFeedback] = useState(null);
-  const [sessionEnded, setSessionEnded] = useState(false);
   const [error, setError] = useState(null);
   const [autoSubmit, setAutoSubmit] = useState(false);
   const [pendingTranscript, setPendingTranscript] = useState(null);
@@ -22,7 +21,6 @@ export default function App() {
   const [isRecording, setIsRecording] = useState(false);
   const [liveTranscript, setLiveTranscript] = useState("");
   
-
   const listRef = useRef(null);
   const audioRef = useRef(null);
   const socketRef = useRef(null);
@@ -38,6 +36,26 @@ export default function App() {
     lookupDictionary,
     closeDictionary,
   } = useDictionary();
+
+  const {
+    feedback,
+    sessionId,
+    endingSession,
+    sessionEnded,
+    setFeedback,
+    endSession,
+    newSession,
+    exportFeedback,
+  } = useSession({
+    audioRef,
+    setMessages,
+    setLiveTranscript,
+    setPendingTranscript,
+    setEditableText,
+    closeDictionary,
+    setError,
+  });
+
 
   useEffect(() => {
     if (listRef.current) {
@@ -396,71 +414,6 @@ export default function App() {
     }
   }
 
-  async function endSession() {
-    setError(null);
-    setEndingSession(true);
-    try {
-      const resp = await fetch("http://127.0.0.1:5000/api/end-session/", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ session_id: sessionId }),
-      });
-
-      if (!resp.ok) {
-        const txt = await resp.text();
-        throw new Error(txt || resp.statusText);
-      }
-
-      const data = await resp.json();
-      setFeedback(data.feedback || data);
-      setSessionEnded(true);
-    } catch (e) {
-      console.error("End session error", e);
-      setError("结束会话失败: " + (e.message || e));
-    } finally {
-      setEndingSession(false);
-    }
-  }
-
-
-  function renderAnchoredText(text, onWordClick) {
-    if (!text) return null;
-
-    const parts = [];
-    const regex = /\[\[(.*?)\]\]/g;
-
-    let lastIndex = 0;
-    let match;
-
-    while ((match = regex.exec(text)) !== null) {
-      const before = text.slice(lastIndex, match.index);
-      if (before) {
-        parts.push(before);
-      }
-
-      const word = match[1];
-
-      parts.push(
-        <span
-          key={`${word}-${match.index}`}
-          onClick={(e) => onWordClick(word, e)}
-          className="cursor-pointer text-purple-600 font-semibold hover:underline hover:bg-indigo-50 px-1 rounded"
-        >
-          {word}
-        </span>
-      );
-
-      lastIndex = regex.lastIndex;
-    }
-
-    const after = text.slice(lastIndex);
-    if (after) {
-      parts.push(after);
-    }
-
-    return parts;
-  }
-
   function clearConversation() {
     setMessages([]);
   }
@@ -476,42 +429,7 @@ export default function App() {
     URL.revokeObjectURL(url);
   }
 
-  function exportFeedback() {
-    if (!feedback) return;
 
-    const payload = {
-      session_id: sessionId,
-      exported_at: new Date().toISOString(),
-      feedback,
-    };
-
-    const blob = new Blob([JSON.stringify(payload, null, 2)], {
-      type: "application/json",
-    });
-
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `feedback_${sessionId}.json`;
-    a.click();
-    URL.revokeObjectURL(url);
-  }
-
-  function newSession() {
-    const next = uuidv4();
-    setSessionId(next);
-    setMessages([]);
-    setFeedback(null);
-    setLiveTranscript("");
-    setPendingTranscript(null);
-    setEditableText("");
-    setSessionEnded(false);
-    closeDictionary();
-
-    if (audioRef.current) {
-      audioRef.current.pause();
-    }
-  }
 
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col">
@@ -730,64 +648,12 @@ export default function App() {
         </div>
 
         {/* Feedback Sidebar */}
-        {feedback && (
-          <div className="w-96 bg-white rounded-lg shadow-sm p-4 overflow-auto" style={{ maxHeight: 'calc(100vh - 8rem)' }}>
-            <div className="flex items-center justify-between mb-4 gap-2">
-              <h2 className="text-lg font-bold text-slate-800">📊 Session Feedback</h2>
-
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={exportFeedback}
-                  className="px-2 py-1 text-xs rounded-md border border-slate-300 text-slate-600 hover:bg-slate-100"
-                >
-                  Export
-                </button>
-
-                <button 
-                  onClick={() => setFeedback(null)}
-                  className="text-slate-400 hover:text-slate-600 text-xl leading-none"
-                >
-                  ×
-                </button>
-              </div>
-            </div>
-            
-            {/* Sentence Corrections */}
-            {feedback.corrections && feedback.corrections.length > 0 && (
-              <div>
-                <h3 className="text-md font-semibold text-slate-700 mb-3 flex items-center gap-2">
-                  ✏️ Feedback on sentences needing corrections ({feedback.corrections.length})
-                </h3>
-                <div className="space-y-3">
-                  {feedback.corrections.map((corr, idx) => (
-                    <div key={idx} className="p-3 bg-gradient-to-br from-yellow-50 to-orange-50 rounded-lg border border-yellow-200">
-                      <div className="text-xs text-amber-700 font-semibold mb-1">你说的 (What you said):</div>
-                      <div className="text-sm text-slate-600 mb-3 line-through opacity-70">
-                        {corr.original_sentence}
-                      </div>
-                      <div className="text-xs text-green-700 font-semibold mb-1">更自然的说法 (Natural way):</div>
-                      <div className="text-base font-medium text-slate-800 mb-2 leading-relaxed">
-                        {renderAnchoredText(corr.corrected_sentence, lookupDictionary)}
-                      </div>
-                      {corr.explanation && (
-                        <div className="text-sm text-amber-700 bg-white/50 p-2 rounded">
-                          💡 {corr.explanation}
-                        </div>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* Empty State */}
-            {(!feedback.corrections || feedback.corrections.length === 0) && (
-              <div className="text-center text-slate-400 py-8">
-                No feedback items to display
-              </div>
-            )}
-          </div>
-        )}
+        <FeedbackSidebar 
+          feedbackItems={feedback} 
+          lookupDictionary={lookupDictionary} 
+          onExport={exportFeedback}
+          onClose={() => setFeedback(null)}
+        />
       </main>
       
       {/* Desktop Popover & Mobile Bottom Sheet */}
