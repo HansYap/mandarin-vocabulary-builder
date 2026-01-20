@@ -1,19 +1,25 @@
-import React, { use, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { v4 as uuidv4 } from "uuid";
 import { io } from "socket.io-client";
-import Spinner from "./components/ui/Spinner";
 import { useDictionary } from './hooks/useDictionary';
 import DictionaryContainer from './components/dictionary/DictionaryContainer';
 import { useSession } from "./hooks/useSession";
 import FeedbackSidebar from "./components/feedback/FeedbackSidebar";
+import { useChat } from "./hooks/useChat";
+import ChatHeader from "./components/chat/chat_display/ChatHeader";
+import ChatMessageList from "./components/chat/chat_display/ChatMessageList";
+import ErrorBanner from "./components/ui/ErrorBanner";
+import NewSessionBanner from "./components/ui/NewSessionBanner";
+import LiveTranscriptBanner from "./components/ui/LiveTranscriptBanner";
+import TranscriptEditor from "./components/chat/TranscriptEditor";
+import ChatInputArea from "./components/chat/chat_controls/ChatInputArea";
+
 
 const SOCKET_URL = "http://127.0.0.1:5000";
 
 export default function App() {
-  
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
-  const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [autoSubmit, setAutoSubmit] = useState(false);
   const [pendingTranscript, setPendingTranscript] = useState(null);
@@ -21,7 +27,6 @@ export default function App() {
   const [isRecording, setIsRecording] = useState(false);
   const [liveTranscript, setLiveTranscript] = useState("");
   
-  const listRef = useRef(null);
   const audioRef = useRef(null);
   const socketRef = useRef(null);
   const mediaRecorderRef = useRef(null);
@@ -56,95 +61,22 @@ export default function App() {
     setError,
   });
 
+  const {
+    listRef,
+    loading,
+    sendToChat,
+    clearConversation,
+    exportConversation,
+  } = useChat({ 
+    messages,
+    setMessages,
+    sessionId, 
+    setError,
+    audioRef,
+  });
 
-  useEffect(() => {
-    if (listRef.current) {
-      listRef.current.scrollTop = listRef.current.scrollHeight;
-    }
-  }, [messages, loading]);
 
-  function playAudio(audioDataUrl) {
-    if (!audioDataUrl) return;
-    
-    try {
-      if (audioRef.current) {
-        audioRef.current.pause();
-        audioRef.current.currentTime = 0;
-      }
-      
-      audioRef.current = new Audio(audioDataUrl);
-      audioRef.current.play().catch(err => {
-        console.error("Audio playback error:", err);
-        setError("Audio playback failed");
-      });
-    } catch (err) {
-      console.error("Audio creation error:", err);
-    }
-  }
-
-  async function sendToChat(text, isEdited = false, originalText = null) {
-    if (!text.trim()) return;
-
-    const userMsg = {
-      id: uuidv4(),
-      role: "user",
-      text,
-      ts: new Date().toISOString(),
-    };
-
-    // Create a unique ID for the placeholder so we can find it later
-    const placeholderId = uuidv4();
-    const thinkingMsg = {
-      id: placeholderId,
-      role: "assistant",
-      text: "Thinking...",
-      isPlaceholder: true, // Custom flag for styling
-      ts: new Date().toISOString(),
-    };
-
-    setMessages((m) => [...m, userMsg, thinkingMsg]);
-
-    try {
-      setLoading(true);
-      const resp = await fetch("http://127.0.0.1:5000/api/chat/", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ 
-          text, 
-          session_id: sessionId,
-          is_edited: isEdited,
-          original_text: originalText
-        }),
-      });
-      
-      if (!resp.ok) throw new Error(await resp.text() || resp.statusText);
-      const d = await resp.json();
-      
-      // Replace the placeholder with the real response
-      setMessages((prev) => 
-        prev.map((msg) => 
-          msg.id === placeholderId 
-            ? { ...msg, text: d.response || d.message || "（无回复）", isPlaceholder: false }
-            : msg
-        )
-      );
-      
-      if (d.audio) playAudio(d.audio);
-    } catch (e) {
-      console.error("❌ Chat error:", e);
-      setError("无法联系后端: " + (e.message || e));
-      // Update placeholder to show error
-      setMessages((prev) => 
-        prev.map((msg) => 
-          msg.id === placeholderId 
-            ? { ...msg, text: "抱歉，出了一点问题，稍后再试。", isPlaceholder: false }
-            : msg
-        )
-      );
-    } finally {
-      setLoading(false);
-    }
-  }
+  
 
   useEffect(() => {
     const socket = io(SOCKET_URL, { 
@@ -352,60 +284,13 @@ export default function App() {
   async function sendMessage() {
     const text = input.trim();
     if (!text) return;
+
     setError(null);
+    setInput("");        
 
-    const userMsg = {
-      id: uuidv4(),
-      role: "user",
-      text,
-      ts: new Date().toISOString(),
-    };
-
-    const placeholderId = uuidv4();
-    const thinkingMsg = {
-      id: placeholderId,
-      role: "assistant",
-      text: "Thinking...",
-      isPlaceholder: true,
-      ts: new Date().toISOString(),
-    };
-
-    setMessages((m) => [...m, userMsg, thinkingMsg]);
-    setInput("");
-    setLoading(true);
-
-    try {
-      const resp = await fetch("http://127.0.0.1:5000/api/chat/", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text, session_id: sessionId }),
-      });
-
-      if (!resp.ok) throw new Error(await resp.text() || resp.statusText);
-      const data = await resp.json();
-
-      setMessages((prev) => 
-        prev.map((msg) => 
-          msg.id === placeholderId 
-            ? { ...msg, text: data.response || data.message || "（无回复）", isPlaceholder: false }
-            : msg
-        )
-      );
-      
-      if (data.audio) playAudio(data.audio);
-    } catch (e) {
-      setError("无法联系后端: " + (e.message || e));
-      setMessages((prev) => 
-        prev.map((msg) => 
-          msg.id === placeholderId 
-            ? { ...msg, text: "抱歉，我好像遇到一点问题，你可以再说一次吗？", isPlaceholder: false }
-            : msg
-        )
-      );
-    } finally {
-      setLoading(false);
-    }
+    await sendToChat(text); 
   }
+
 
   async function handleKeyDown(e) {
     if (e.key === "Enter" && !e.shiftKey) {
@@ -414,236 +299,53 @@ export default function App() {
     }
   }
 
-  function clearConversation() {
-    setMessages([]);
-  }
-
-  function exportConversation() {
-    const payload = { session_id: sessionId, messages };
-    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `conversation_${sessionId}.json`;
-    a.click();
-    URL.revokeObjectURL(url);
-  }
-
-
-
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col">
-      <header className="bg-white shadow p-4 flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-full bg-gradient-to-br from-indigo-500 to-emerald-400 flex items-center justify-center text-white font-bold">
-            CP
-          </div>
-          <div>
-            <h1 className="text-lg font-semibold">Chinese Practice — Chat</h1>
-            <p className="text-xs text-slate-500">
-              Session: <span className="font-mono">{sessionId.slice(0, 8)}</span>
-            </p>
-          </div>
-        </div>
-
-        <div className="flex gap-2">
-          <button onClick={exportConversation} className="px-3 py-1 rounded-md border text-sm hover:bg-slate-100">
-            Export
-          </button>
-          <button onClick={clearConversation} className="px-3 py-1 rounded-md border text-sm hover:bg-slate-100">
-            Clear
-          </button>
-          <button onClick={newSession} className="px-3 py-1 rounded-md bg-indigo-600 text-white text-sm hover:opacity-90">
-            New Session
-          </button>
-        </div>
-      </header>
+      <ChatHeader 
+        exportConversation={exportConversation}
+        clearConversation={clearConversation}
+        newSession={newSession}
+        sessionId={sessionId}
+      />
 
       <main className="flex-1 p-4 max-w-5xl mx-auto w-full flex gap-4">
         {/* Chat Column */}
         <div className="flex-1 flex flex-col" style={{ maxHeight: 'calc(100vh - 8rem)' }}>
-          <div ref={listRef} className="flex-1 overflow-auto mb-4 p-3 bg-white rounded-lg shadow-sm">
-            {messages.length === 0 && <div className="text-center text-slate-400 mt-20">Start the conversation by typing or speaking.</div>}
-
-            <div className="space-y-3">
-              {messages.map((m) => (
-                <div 
-                  key={m.id} 
-                  className={`p-3 rounded-lg max-w-[80%] transition-all duration-300 ${
-                    m.role === "user" 
-                      ? "ml-auto bg-indigo-50 border-transparent" 
-                      : "mr-auto bg-slate-100 border-transparent"
-                  } border`}
-                >
-                  <div className="text-sm whitespace-pre-wrap">
-                    {m.isPlaceholder ? (
-                      <div className="flex items-center gap-2 py-1">
-                        <span className="text-slate-400 italic font-medium">Thinking</span>
-                        <div className="flex">
-                          <span className="dot"></span>
-                          <span className="dot"></span>
-                          <span className="dot"></span>
-                        </div>
-                      </div>
-                    ) : (
-                      m.text
-                    )}
-                  </div>
-                  <div className="text-[11px] text-slate-400 mt-1 text-right">
-                    {new Date(m.ts).toLocaleString()}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
+          <ChatMessageList messages={messages} listRef={listRef} />
 
           <div className="bg-white p-3 rounded-lg shadow flex flex-col gap-2">
-            {error && (
-              <div className="p-2 bg-red-50 rounded border border-red-200">
-                <div className="text-xs text-red-600 font-semibold mb-1">❌ Error:</div>
-                <div className="text-sm text-red-800">{error}</div>
-              </div>
-            )}
+            <ErrorBanner error={error} />
 
-            {sessionEnded && (
-              <div className="p-3 mb-2 rounded-md border border-orange-300 bg-orange-50 text-orange-800 text-sm rounded">
-                ⚠️ This session has ended and feedback has been generated.
-                <br />
-                To receive <strong>new feedback</strong>, please click{" "}
-                <span className="font-semibold">New Session</span>.
-              </div>
-            )}
+            <NewSessionBanner sessionEnded={sessionEnded} />
 
-            {liveTranscript && (
-              <div className="p-2 bg-blue-50 rounded border border-blue-200">
-                <div className="text-xs text-blue-600 font-semibold mb-1">🎤 Live Transcript:</div>
-                <div className="text-sm text-blue-800">{liveTranscript}</div>
-              </div>
-            )}
+            <LiveTranscriptBanner liveTranscript={liveTranscript} />
 
-            {pendingTranscript && (
-              <div className="p-3 bg-yellow-50 rounded border-2 border-yellow-400">
-                <div className="flex items-center justify-between mb-2">
-                  <div className="text-xs font-semibold text-yellow-700">
-                    ✏️ Review & Edit Transcript (Manual Mode)
-                  </div>
-                  <button 
-                    onClick={handleCancelEdit}
-                    className="text-xs text-yellow-600 hover:text-yellow-800"
-                  >
-                    ✕ Cancel
-                  </button>
-                </div>
-                <textarea
-                  ref={editTextareaRef}
-                  value={editableText}
-                  onChange={(e) => setEditableText(e.target.value)}
-                  className="w-full p-2 rounded border border-yellow-300 resize-none focus:outline-none focus:ring-2 focus:ring-yellow-400"
-                  rows={3}
-                  placeholder="Edit your transcript here..."
-                />
-                <button
-                  onClick={handleSendEdited}
-                  disabled={!editableText.trim() || loading}
-                  className="mt-2 w-full px-4 py-2 bg-yellow-500 text-white rounded-md font-medium hover:bg-yellow-600 disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  ✓ Send Edited Message
-                </button>
-              </div>
-            )}
-
-            <textarea 
-              value={input} 
-              onChange={(e) => setInput(e.target.value)} 
-              onKeyDown={handleKeyDown} 
-              placeholder="输入中文或英文（按 Enter 发送，Shift+Enter 换行）" 
-              rows={3} 
-              className="w-full p-2 rounded border resize-none focus:outline-none focus:ring disabled:bg-slate-100 disabled:opacity-60 disabled:cursor-not-allowed" 
-              disabled={isRecording || pendingTranscript !== null || loading || endingSession}
+            <TranscriptEditor 
+              pendingTranscript={pendingTranscript}
+              handleCancelEdit={handleCancelEdit}
+              editTextareaRef={editTextareaRef}
+              loading={loading}
+              handleSendEdited={handleSendEdited}
+              editableText={editableText}
+              setEditableText={setEditableText}
             />
 
-            <div className="flex items-center justify-between gap-3">
-              <div className="flex gap-2 items-center flex-wrap">
-                <button
-                  onClick={sendMessage}
-                  disabled={loading || isRecording || pendingTranscript !== null || endingSession}
-                  className={`
-                    px-4 py-2 rounded-md font-medium
-                    flex items-center justify-center
-                    transition-colors duration-200
-                    ${
-                      loading
-                        ? "bg-gray-300 text-gray-600 cursor-not-allowed"
-                        : "bg-emerald-500 text-white hover:bg-emerald-600"
-                    }
-                    disabled:opacity-60 disabled:cursor-not-allowed
-                  `}
-                >
-                  <span className="relative inline-flex items-center justify-center">
-                    {/* Text (defines width) */}
-                    <span className={loading ? "invisible" : "visible"}>
-                      发送 / Send Message
-                    </span>
-
-                    {/* Spinner (overlayed) */}
-                    <span
-                      className={`
-                        absolute inset-0 flex items-center justify-center
-                        ${loading ? "opacity-100" : "opacity-0"}
-                      `}
-                    >
-                      <Spinner />
-                    </span>
-                  </span>
-                </button>
-
-                <button 
-                  onClick={isRecording ? stopRecording : startRecording} 
-                  disabled={pendingTranscript !== null || loading || endingSession}
-                  className={`px-3 py-2 rounded-md text-sm font-medium ${
-                    isRecording 
-                      ? "bg-red-500 text-white animate-pulse" 
-                      : "bg-blue-500 text-white hover:bg-blue-600"
-                  }disabled:opacity-60 disabled:cursor-not-allowed`}>
-                  {isRecording ? "⏹ Stop Speaking" : "🎤 Start Speaking"}
-                </button>
-
-                <button
-                  onClick={() => setAutoSubmit(!autoSubmit)}
-                  disabled={isRecording || loading || endingSession}
-                  className={`px-3 py-2 rounded-md text-sm font-medium border-2 transition-colors ${
-                    autoSubmit
-                      ? "bg-green-500 text-white border-green-600"
-                      : "bg-white text-slate-700 border-slate-300"
-                  } disabled:opacity-60 disabled:cursor-not-allowed`}
-                >
-                  {autoSubmit ? "⚡ Auto" : "✋ Manual"}
-                </button>
-
-                <button 
-                  onClick={endSession} 
-                  disabled={endingSession || loading || isRecording}
-                  className={`px-3 py-2 rounded-md text-sm font-medium transition-all ${
-                    endingSession ? "bg-orange-400 text-white opacity-60" : "bg-orange-400 text-white hover:bg-orange-500 disabled:opacity-60 disabled:cursor-not-allowed"
-                  }`}
-                >
-                  <span className="inline-flex items-center justify-center gap-2">
-                    {endingSession ? (
-                      <>
-                        <Spinner />
-                        Generating feedback
-                      </>
-                    ) : (
-                      "End Session"
-                    )}
-                  </span>
-                </button>
-              </div>
-
-              <div className="text-sm text-slate-500">
-                <div>Messages: {messages.length}</div>
-              </div>
-            </div>
+            <ChatInputArea 
+              input={input}
+              setInput={setInput}
+              handleKeyDown={handleKeyDown}
+              isRecording={isRecording}
+              pendingTranscript={pendingTranscript}
+              loading={loading}
+              endingSession={endingSession}
+              sendMessage={sendMessage}
+              startRecording={startRecording}
+              stopRecording={stopRecording}
+              endSession={endSession}
+              messages={messages}
+              autoSubmit={autoSubmit}
+              setAutoSubmit={setAutoSubmit}
+            /> 
           </div>
         </div>
 
@@ -664,27 +366,6 @@ export default function App() {
         isMobile={isMobile}
         onClose={closeDictionary}
       />
-
-
-      <style jsx>{`
-        @keyframes bounce {
-          0%, 80%, 100% { transform: translateY(0); }
-          40% { transform: translateY(-5px); }
-        }
-
-        .dot {
-          display: inline-block;
-          width: 6px;
-          height: 6px;
-          margin: 0 2px;
-          background-color: #94a3b8; /* slate-400 */
-          border-radius: 50%;
-          animation: bounce 1.4s infinite ease-in-out both;
-        }
-
-        .dot:nth-child(1) { animation-delay: -0.32s; }
-        .dot:nth-child(2) { animation-delay: -0.16s; }
-      `}</style>
     </div>
   );
 }
