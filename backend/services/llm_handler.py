@@ -9,7 +9,7 @@ class LLMHandler:
         self.ollama_url = "http://127.0.0.1:11434/api/generate"
         self.chat_model = "qwen2.5:1.5b"
         self.feedback_model = "qwen2.5:3b"
-        self.hsk_level = "5-6" # tune text highlighting for which hsk levels
+        self.hsk_level = "4" # tune feedback highlighting for which hsk levels
 
     
     def get_response(self, user_message, conversation_history):
@@ -22,7 +22,7 @@ class LLMHandler:
                 f"你是用户的中文朋友，用自然、轻松的方式聊天。"
                 f"像真正的朋友一样交流——分享想法、回应感受、延续话题。\n\n"
                 f"对话风格：\n"
-                f"- 用日常口语（HSK{self.hsk_level}难度），像朋友聊天一样自然\n"
+                f"- 用日常口语（HSK4-6难度），像朋友聊天一样自然\n"
                 f"- 回应用户说的内容，表达真实的反应和想法\n"
                 f"- 提问要出于好奇，不是为了教学——就像朋友想了解更多\n"
                 f"- 偶尔分享你的'想法'或'经历'让对话更真实\n"
@@ -86,7 +86,7 @@ class LLMHandler:
         english_hint = f"\n注意：用户用英文说了这些词：{', '.join(english_words)}" if english_words else ""
         
         # Build the new prompt
-        prompt = f"""你是经验丰富的中文老师。学生（中级水平，HSK 3-4）说了：
+        prompt = f"""你是经验丰富的中文老师。学生（中级水平，HSK 3-6）说了：
 
 "{broken_sentence}"{english_hint}
 
@@ -100,7 +100,7 @@ class LLMHandler:
 - 习语、问候语要用地道表达（例如："hello people" → "大家好"，不是"你好人们"）
 - 高亮所有值得注意的词汇：
   * 用户用英文说的词（说明他们不知道中文怎么说）
-  * 中高级词汇（HSK 3+）
+  * 中高级词汇（HSK LEVEL {self.hsk_level} 以上）
   * 量词、搭配、习语
   * 不要标注"我"、"的"、"是"这种最基础的词
 - 量词如果用错，要标注正确的量词
