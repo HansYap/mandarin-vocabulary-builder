@@ -1,0 +1,27 @@
+__pycache__/
+.ipynb_checkpoints/
+basetts_outputs_use_bert/
+basetts_outputs/
+multilingual_ckpts/
+pretrained_models/
+checkpoints/
+models/
+basetts_outputs_package/
+build/
+*.egg-info/
+
+# Model files (CRITICAL - these are huge!)
+*.pth
+*.pt
+*.ckpt
+*.safetensors
+*.bin
+
+# Archives
+*.zip
+*.tar.gz
+
+# Generated audio
+*.wav
+*.mp3
+*.flac
