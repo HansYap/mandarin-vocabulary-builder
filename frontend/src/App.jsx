@@ -7,12 +7,7 @@ import { useSession } from "./hooks/useSession";
 import FeedbackSidebar from "./components/feedback/FeedbackSidebar";
 import { useChat } from "./hooks/useChat";
 import ChatHeader from "./components/chat/chat_display/ChatHeader";
-import ChatMessageList from "./components/chat/chat_display/ChatMessageList";
-import ErrorBanner from "./components/ui/ErrorBanner";
-import NewSessionBanner from "./components/ui/NewSessionBanner";
-import LiveTranscriptBanner from "./components/ui/LiveTranscriptBanner";
-import TranscriptEditor from "./components/chat/TranscriptEditor";
-import ChatInputArea from "./components/chat/chat_controls/ChatInputArea";
+import ChatColumn from "./components/chat/chat_display/ChatColumn";
 
 
 const SOCKET_URL = "http://127.0.0.1:5000";
@@ -291,7 +286,6 @@ export default function App() {
     await sendToChat(text); 
   }
 
-
   async function handleKeyDown(e) {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
@@ -310,44 +304,31 @@ export default function App() {
 
       <main className="flex-1 p-4 max-w-5xl mx-auto w-full flex gap-4">
         {/* Chat Column */}
-        <div className="flex-1 flex flex-col" style={{ maxHeight: 'calc(100vh - 8rem)' }}>
-          <ChatMessageList messages={messages} listRef={listRef} />
-
-          <div className="bg-white p-3 rounded-lg shadow flex flex-col gap-2">
-            <ErrorBanner error={error} />
-
-            <NewSessionBanner sessionEnded={sessionEnded} />
-
-            <LiveTranscriptBanner liveTranscript={liveTranscript} />
-
-            <TranscriptEditor 
-              pendingTranscript={pendingTranscript}
-              handleCancelEdit={handleCancelEdit}
-              editTextareaRef={editTextareaRef}
-              loading={loading}
-              handleSendEdited={handleSendEdited}
-              editableText={editableText}
-              setEditableText={setEditableText}
-            />
-
-            <ChatInputArea 
-              input={input}
-              setInput={setInput}
-              handleKeyDown={handleKeyDown}
-              isRecording={isRecording}
-              pendingTranscript={pendingTranscript}
-              loading={loading}
-              endingSession={endingSession}
-              sendMessage={sendMessage}
-              startRecording={startRecording}
-              stopRecording={stopRecording}
-              endSession={endSession}
-              messages={messages}
-              autoSubmit={autoSubmit}
-              setAutoSubmit={setAutoSubmit}
-            /> 
-          </div>
-        </div>
+        <ChatColumn
+          messages={messages}
+          listRef={listRef}
+          error={error}
+          sessionEnded={sessionEnded}
+          liveTranscript={liveTranscript}
+          pendingTranscript={pendingTranscript}
+          handleCancelEdit={handleCancelEdit}
+          editTextareaRef={editTextareaRef}
+          loading={loading}
+          handleSendEdited={handleSendEdited}
+          editableText={editableText}
+          setEditableText={setEditableText}
+          input={input}
+          setInput={setInput}
+          handleKeyDown={handleKeyDown}
+          isRecording={isRecording}
+          sendMessage={sendMessage}
+          startRecording={startRecording}
+          stopRecording={stopRecording}
+          endSession={endSession}
+          endingSession={endingSession}
+          autoSubmit={autoSubmit}
+          setAutoSubmit={setAutoSubmit}
+        />
 
         {/* Feedback Sidebar */}
         <FeedbackSidebar 
