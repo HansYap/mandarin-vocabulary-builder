@@ -4,7 +4,7 @@
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
-*.py[codz]
+*.py[cod]
 *$py.class
 
 # C extensions
@@ -82,7 +82,6 @@ env.bak/
 venv.bak/
 
 # PyCharm / VS Code / other tools
-# .idea/
 .vscode/
 .ruff_cache/
 .pypirc
@@ -90,38 +89,21 @@ venv.bak/
 .cursorindexingignore
 
 # ========================
-# Frontend (React / Node) ignores
+# MeloTTS specific (CRITICAL!)
 # ========================
 
-# Node modules
-frontend/node_modules/
+# Model file extensions
+*.pth
+*.pt
+*.ckpt
+*.safetensors
+*.bin
 
-# Build output
-frontend/build/
-frontend/dist/
-frontend/.turbo/
-frontend/.next/          # if using Next.js
-frontend/.expo/          # if using Expo
-frontend/out/
+# Generated audio files
+*.wav
+*.mp3
+*.flac
 
-# Log files
-frontend/npm-debug.log*
-frontend/yarn-debug.log*
-frontend/yarn-error.log*
-
-# Environment variables
-frontend/.env
-frontend/.env.local
-frontend/.env.development.local
-frontend/.env.test.local
-frontend/.env.production.local
-
-# Mac / Linux system files
-frontend/.DS_Store
-frontend/*.swp
-frontend/.vscode/
-
-# Misc
-frontend/.parcel-cache/
-frontend/.pnp.*
-frontend/.cache/
+# Archives
+*.zip
+*.tar.gz
