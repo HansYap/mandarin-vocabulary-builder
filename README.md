@@ -14,9 +14,9 @@ A privacy-first conversational AI that helps intermediate Mandarin learners expa
 
 ## Problem
 
-You studied Mandarin for years. You know pinyin, stroke order (笔画), basic grammar. You can talk about school, weather, and ordering food.
+You studied Mandarin for a while now. You know pinyin, stroke order (笔画), basic grammar. You can talk about school, weather, and ordering food.
 
-But when you try to discuss your career, emotions, or current events? You're stuck mixing English words into Chinese sentences because you never learned the *adult* vocabulary you actually need YET.
+But when you try to discuss your career, emotions, or current events? You're stuck mixing English words into Chinese sentences because you never learned the vocabulary you actually needed for YOUR SPECIFIC DAILY LIFE CONVERSATIONS.
 
 **Traditional learning apps teach you "apple" and "bicycle." You need "quarterly revenue" and "existential crisis."**
 
