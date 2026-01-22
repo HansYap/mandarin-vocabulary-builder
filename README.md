@@ -6,6 +6,10 @@ A privacy-first conversational AI that helps intermediate Mandarin learners expa
 
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
 
+<img width="1919" height="851" alt="image" src="https://github.com/user-attachments/assets/d650fd78-b0eb-4283-9fde-d5cf97bae264" />
+<img width="1919" height="858" alt="image" src="https://github.com/user-attachments/assets/ce01664d-9dbe-4b8e-90d2-8650d76d0227" />
+<img width="1919" height="856" alt="image" src="https://github.com/user-attachments/assets/3bd90ec2-8672-4a7d-a97e-535604db9d81" />
+
 ---
 
 ## Problem
