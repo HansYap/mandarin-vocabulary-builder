@@ -126,7 +126,7 @@ I believe privacy and having the freedom to talk about what ever you want is ext
 
 I studied Mandarin until I was 11. I could read kids' books and chat about school. But as an adult trying to discuss work or emotions? I was lost.
 
-Duolingo taught me "我喜欢苹果" (I like apples). I needed "季度收入" (quarterly revenue) and "冒名顶替综合症" (impostor syndrome).
+Duolingo taught me "我喜欢苹果" (I like apples). I needed "季度收入" (quarterly revenue) and "冒名顶替综合症" (impostor syndrome), words I needed for my daily life.
 
 This app encourages you to talk about *your actual life*, then teaches you the words you're missing. It's a patient language partner who never judges your broken sentences.
 
