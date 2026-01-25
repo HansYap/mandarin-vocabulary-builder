@@ -1,0 +1,141 @@
+services:
+  frontend:
+    build: 
+      context: ./frontend
+      dockerfile: Dockerfile
+    ports:
+      - "5173:5173"
+    environment:
+      - VITE_BACKEND_URL=http://localhost:5000
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+  backend:
+    build: 
+      context: ./backend
+      dockerfile: Dockerfile
+    volumes:
+      - ./models:/app/models
+    ports:
+      - "5000:5000"
+    environment:
+      - ASR_URL=http://asr-service:5001/transcribe
+      - TTS_URL=http://tts-service:8000/tts
+      - OLLAMA_URL=http://ollama-service:11434
+      - NVIDIA_VISIBLE_DEVICES=all
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    depends_on:
+      asr-service:
+        condition: service_healthy
+      tts-service:
+        condition: service_healthy
+      ollama-pull-model:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  asr-service:
+    build: 
+      context: ./asr_service
+      dockerfile: Dockerfile
+    ports:
+      - "5001:5001"
+    volumes:
+      - asr_models:/root/.cache/huggingface
+    environment:
+      - HF_HUB_ENABLE_HF_TRANSFER=1
+      - NVIDIA_VISIBLE_DEVICES=all
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:5001/health | grep -q '\"model_loaded\":true' || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 60  # Allow up to 10 minutes for first-time model download
+      start_period: 600s  # 10 minutes grace period
+    restart: unless-stopped
+
+  tts-service:
+    build:
+      context: ./tts_service
+      dockerfile: Dockerfile.fixed
+    ports:
+      - "8000:8000"
+    volumes:
+      - tts_models:/root/.cache/melo
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8000/health | grep -q '\"model_loaded\":true' || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 60
+      start_period: 600s
+    restart: unless-stopped
+
+  ollama-service:
+    image: ollama/ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    restart: unless-stopped
+
+  ollama-pull-model:
+    image: ollama/ollama
+    depends_on:
+      - ollama-service
+    volumes:
+      - ollama_data:/root/.ollama
+    entrypoint: ["/bin/sh"]  
+    command: 
+      - -c
+      - |
+        echo 'Waiting for Ollama...';
+        export OLLAMA_HOST=http://ollama-service:11434;
+        until ollama list > /dev/null 2>&1; do 
+          echo 'Still waiting...'; 
+          sleep 3; 
+        done;
+        echo 'Pulling qwen2.5:1.5b...';
+        ollama pull qwen2.5:1.5b;
+        echo 'Pulling qwen2.5:3b...';
+        ollama pull qwen2.5:3b;
+        echo 'Done!';
+        ollama list;
+    restart: "no"
+
+volumes:
+  asr_models:
+  tts_models:
+  ollama_data:
+
+
+
+
+  

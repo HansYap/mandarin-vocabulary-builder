@@ -1,6 +1,8 @@
 import { useState, useRef, useEffect } from 'react';
 import { v4 as uuidv4 } from "uuid";
 
+const API_BASE_URL = import.meta.env.VITE_BACKEND_URL || "http://localhost:5000";
+
 export function useChat({ 
     sessionId, 
     messages, 
@@ -76,7 +78,7 @@ export function useChat({
 
         try {
         setLoading(true);
-        const resp = await fetch("http://127.0.0.1:5000/api/chat/", {
+        const resp = await fetch(`${API_BASE_URL}/api/chat`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ 
@@ -101,7 +103,7 @@ export function useChat({
         
         if (d.audio) playAudio(d.audio);
         } catch (e) {
-        console.error("❌ Chat error:", e);
+        console.error("Chat error:", e);
         setError("无法联系后端: " + (e.message || e));
         // Update placeholder to show error
         setMessages((prev) => 

@@ -12,11 +12,11 @@ socketio = SocketIO(
 
 def create_app():
     app = Flask(__name__)
-    CORS(app, origins=["http://127.0.0.1:5173", "http://localhost:5173", "https://frontend-tutor-mvp.vercel.app"])
+    CORS(app, origins=["*"])
     
-    from .api.chat import chat_bp
-    from .api.session import session_bp
-    from .api.dictionary import dictionary_bp
+    from backend.api.chat import chat_bp
+    from backend.api.session import session_bp
+    from backend.api.dictionary import dictionary_bp
 
     app.register_blueprint(chat_bp, url_prefix='/api/chat')
     app.register_blueprint(session_bp, url_prefix='/api/end-session')
@@ -26,6 +26,6 @@ def create_app():
     socketio.init_app(app)
     
     # Import audio_stream AFTER socketio is initialized
-    from .api.audio_stream import audio_stream
+    from backend.api.audio_stream import audio_stream
 
     return app

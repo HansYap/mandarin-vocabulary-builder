@@ -17,7 +17,6 @@ class FeedbackGenerator:
         for idx, turn in enumerate(transcript):
             if turn.get('role') == 'user':
                 text = turn.get('content') or turn.get('text', '')
-                print(f"[TURN {idx}] User: '{text}'")
                 
                 # Collect any sentence that has English or mixed language
                 if self._has_english(text) or self._has_mixed_language(text):
@@ -43,7 +42,6 @@ class FeedbackGenerator:
                 
                 # Skip if word doesn't exist in corrected text (validation)
                 if word not in corrected_text:
-                    print(f"⚠️  Skipping '{word}' - not found in corrected text")
                     continue
                 
                 # Add [[anchors]] for UI highlighting (first occurrence only)

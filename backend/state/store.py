@@ -8,7 +8,3 @@ feedback = FeedbackGenerator(llm)
 # Shared state dictionaries (moved from store.py)
 transcripts = {}
 conversation_histories = {}
-
-print(f"✅ Shared instances created:")
-print(f"   LLM Instance ID: {id(llm)}")
-print(f"   Feedback Instance ID: {id(feedback)}")

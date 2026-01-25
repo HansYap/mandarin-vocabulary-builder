@@ -1,50 +1,27 @@
-# FROM python:3.9-slim
-
-# WORKDIR /app
-
-# COPY . /app
-
-# RUN apt-get update && apt-get install -y \
-#     build-essential \
-#     libsndfile1 \
-#     git \
-#     && rm -rf /var/lib/apt/lists/*
-
-# # Install dependencies with fixed versions
-# RUN pip install --upgrade pip
-# RUN pip install torch torchaudio --index-url https://download.pytorch.org/whl/cpu
-# RUN pip install -e .
-# RUN python -m unidic download
-
-# # Skip the problematic init_downloads.py - it will download models on first use instead
-
-# EXPOSE 8888
-
-# CMD ["python", "./melo/app.py", "--host", "0.0.0.0", "--port", "8888"]
-
 FROM pytorch/pytorch:2.2.0-cuda12.1-cudnn8-runtime
 
 WORKDIR /app
-COPY . /app
-
-RUN echo "USING Dockerfile.fixed"
 
 RUN apt-get update && apt-get install -y \
     build-essential \
     libsndfile1 \
     git \
+    curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Python dependencies (PyTorch already included in base image)
+COPY . /app/tts_service/
+
 RUN pip install --upgrade pip && \
-    pip install -e . fastapi uvicorn[standard] && \
+    pip install -e /app/tts_service/ fastapi uvicorn[standard] && \
     python -m unidic download
 
 RUN python -c "import nltk; \
     nltk.download('averaged_perceptron_tagger'); \
     nltk.download('averaged_perceptron_tagger_eng'); \
     nltk.download('cmudict')"
+    
+ENV PYTHONPATH=/app:/app/tts_service
 
 EXPOSE 8000
 
-CMD ["python", "api_server.py"]
+CMD ["python", "/app/tts_service/api_server.py"]

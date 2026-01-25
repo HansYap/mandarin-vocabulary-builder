@@ -4,7 +4,11 @@ import eventlet
 import eventlet.tpool
 from typing import Optional, Dict, List
 from pypinyin import pinyin, Style
-
+import ctranslate2
+import transformers
+from huggingface_hub import snapshot_download
+import torch
+        
 
 class DictionaryHandler:
     """Fast dictionary lookup service for CC-CEDICT"""
@@ -23,6 +27,29 @@ class DictionaryHandler:
         
         self.loading_lock = False
         
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        self.model_dir = os.path.join(current_dir, "../models/opus-mt-zh-en-ct2")
+        
+        self._ensure_model_exists()
+        
+    def _ensure_model_exists(self):
+        """Downloads official Helsinki model and converts to CT2 format."""
+        if not os.path.exists(self.model_dir) or not os.listdir(self.model_dir):
+            import ctranslate2
+            from transformers import AutoModelForSeq2SeqLM, AutoTokenizer
+            
+            print("First-time setup: Downloading official Helsinki-NLP model...")
+            model_name = "Helsinki-NLP/opus-mt-zh-en"
+            
+            # This converts the official model to the fast CT2 format locally
+            converter = ctranslate2.converters.TransformersConverter(model_name)
+            converter.convert(self.model_dir, force=True)
+            
+            # Also save the tokenizer to the same folder
+            tokenizer = AutoTokenizer.from_pretrained(model_name)
+            tokenizer.save_pretrained(self.model_dir)
+            print("Conversion complete!")
+        
     def _get_translator(self):
         """Eventlet-safe lazy loading"""
         if self.loading_lock:
@@ -32,15 +59,9 @@ class DictionaryHandler:
             self.loading_lock = True
             
             try: 
-                import ctranslate2
-                import transformers
-                
-                current_dir = os.path.dirname(os.path.abspath(__file__))
-                model_dir = os.path.join(current_dir, "../models/opus-mt-zh-en-ct2")
-        
-                print("🚀 Loading CTranslate2 (Eventlet-Safe Mode)...")
-                self.translator = ctranslate2.Translator(model_dir, device="cuda")
-                self.tokenizer = transformers.AutoTokenizer.from_pretrained("Helsinki-NLP/opus-mt-zh-en")
+                device = "cuda" if torch.cuda.is_available() else "cpu"
+                self.translator = ctranslate2.Translator(self.model_dir, device=device)
+                self.tokenizer = transformers.AutoTokenizer.from_pretrained(self.model_dir, use_fast=True)
             finally:
                 self.loading_lock = False
             
@@ -53,7 +74,6 @@ class DictionaryHandler:
 
     def _unload_translation_model(self):
         """Safe VRAM cleanup within the event loop"""
-        print("💤 Inactivity detected: Offloading Translation Model...")
         self.translator = None
         self.tokenizer = None
         self.unload_timer = None
@@ -68,11 +88,8 @@ class DictionaryHandler:
         """The actual logic being offloaded to the thread pool"""
         translator, tokenizer = self._get_translator()
         
-        source_tokens = tokenizer.convert_ids_to_tokens(tokenizer.encode(text, add_special_tokens=False))
-        print(f"DEBUG - Input text: {text}")
-        print(f"DEBUG - Source tokens: {source_tokens}")
+        source_tokens = tokenizer.tokenize(text)
 
-        
         results = translator.translate_batch(
             [source_tokens],
             beam_size=2,
@@ -82,10 +99,8 @@ class DictionaryHandler:
         )
 
         target_tokens = results[0].hypotheses[0]
-        print(f"DEBUG - Target tokens: {target_tokens}")
         
         translation = tokenizer.decode(tokenizer.convert_tokens_to_ids(target_tokens), skip_special_tokens=True)
-        print(f"DEBUG - Decoded translation: '{translation}'")
 
         if '(' in translation:
             translation = translation.split('(')[0]
@@ -109,7 +124,6 @@ class DictionaryHandler:
         if not os.path.exists(full_path):
             raise FileNotFoundError(f"Dictionary not found: {full_path}")
         
-        print("Loading CC-CEDICT dictionary...")
         entry_count = 0
         
         with open(full_path, 'r', encoding='utf-8') as f:
@@ -122,9 +136,6 @@ class DictionaryHandler:
                     self._index_entry(entry)
                     entry_count += 1
         
-        print(f"✓ Dictionary loaded: {entry_count} entries indexed")
-        print(f"  - Simplified index: {len(self.simplified_index)} keys")
-        print(f"  - Traditional index: {len(self.traditional_index)} keys")
     
     def _parse_line(self, line: str) -> Optional[Dict]:
         """Parse a single CC-CEDICT line with classifier extraction"""
@@ -216,7 +227,6 @@ class DictionaryHandler:
     
     def _calculate_frequency_scores(self):
         """Calculate frequency scores for single-character entries based on compound count"""
-        print("Calculating frequency scores...")
         
         for word, entries in self.simplified_index.items():
             if len(entries) <= 1:
@@ -234,7 +244,6 @@ class DictionaryHandler:
                 compound_freq = self.compound_count.get(key, 0)
                 entry["frequency_score"] = compound_freq
         
-        print("✓ Frequency scores calculated")
     
     def lookup(self, chinese_word: str, context: str = "") -> Dict:
         """

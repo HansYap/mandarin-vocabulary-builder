@@ -1,8 +1,0 @@
-flask==2.3.0
-flask-cors==4.0.0
-transformers==4.35.2
-librosa==0.9.1
-jieba==0.42.1
-pyttsx3==2.90
-python-dotenv==1.0.0
-

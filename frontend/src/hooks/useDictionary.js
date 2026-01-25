@@ -1,5 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 
+const API_BASE_URL = import.meta.env.VITE_BACKEND_URL || "http://localhost:5000";
+
 export function useDictionary() {
     const [dictionaryEntry, setDictionaryEntry] = useState(null);
     const [dictionaryLoading, setDictionaryLoading] = useState(false);
@@ -19,7 +21,7 @@ export function useDictionary() {
 
 
     async function lookupDictionary(word, event) {
-        console.log("🔵 lookupDictionary called with:", word);
+        console.log("lookupDictionary called with:", word);
 
         // Abort previous request
         if (dictionaryAbortRef.current) {
@@ -43,7 +45,7 @@ export function useDictionary() {
 
         try {
         const resp = await fetch(
-            "http://127.0.0.1:5000/api/dictionary/lookup",
+            `${API_BASE_URL}/api/dictionary/lookup`,
             {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -66,7 +68,7 @@ export function useDictionary() {
             }
         } catch (err) {
             if (err.name !== "AbortError") {
-                console.error("🔥 Dictionary lookup failed:", err);
+                console.error("Dictionary lookup failed:", err);
                 setDictionaryEntry({
                 found: false,
                 message: "Dictionary service unavailable",

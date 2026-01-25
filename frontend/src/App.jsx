@@ -10,7 +10,7 @@ import ChatHeader from "./components/chat/chat_display/ChatHeader";
 import ChatColumn from "./components/chat/chat_display/ChatColumn";
 
 
-const SOCKET_URL = "http://127.0.0.1:5000";
+const SOCKET_URL = import.meta.env.VITE_BACKEND_URL || "http://localhost:5000";
 
 export default function App() {
   const [messages, setMessages] = useState([]);
@@ -81,17 +81,17 @@ export default function App() {
     socketRef.current = socket;
 
     socket.on("connect", () => {
-      console.log("✅ Socket connected:", socket.id);
+      console.log("Socket connected:", socket.id);
     });
 
     socket.on("partial_transcript", (data) => {
-      console.log("📝 Partial transcript:", data);
+      console.log("Partial transcript:", data);
       const text = data?.text || "";
       setLiveTranscript(text);
     });
 
     socket.on("final_transcript", async (data) => {
-      console.log("✅ Final transcript (legacy):", data);
+      console.log("Final transcript (legacy):", data);
       const text = (data && data.text) || "";
       setLiveTranscript("");
       if (!text) return;
@@ -99,7 +99,7 @@ export default function App() {
     });
 
     socket.on("transcript_ready", async (data) => {
-      console.log("✅ Transcript ready:", data);
+      console.log("Transcript ready:", data);
       const text = (data && data.text) || "";
       const shouldAutoSubmit = data.auto_submit || autoSubmit;
       
@@ -117,20 +117,20 @@ export default function App() {
     });
 
     socket.on("transcript_confirmed", (data) => {
-      console.log("✅ Transcript confirmed:", data);
+      console.log("Transcript confirmed:", data);
     });
 
     socket.on("session_ready", (d) => {
-      console.log("✅ Session ready:", d);
+      console.log("Session ready:", d);
     });
 
     socket.on("connect_error", (err) => {
-      console.error("❌ Socket connect error:", err);
+      console.error("Socket connect error:", err);
       setError("Socket connection failed: " + err.message);
     });
 
     socket.on("disconnect", () => {
-      console.log("🔌 Socket disconnected");
+      console.log("Socket disconnected");
     });
 
     return () => {
@@ -165,7 +165,7 @@ export default function App() {
     }
 
     try {
-      console.log("🎤 Starting recording...");
+      console.log("Starting recording...");
       const stream = await navigator.mediaDevices.getUserMedia({ 
         audio: {
           channelCount: 1,
@@ -181,18 +181,18 @@ export default function App() {
         ? "audio/webm"
         : "audio/wav";
       
-      console.log("📼 Using MIME type:", mimeType);
+      console.log("Using MIME type:", mimeType);
 
       const mediaRecorder = new MediaRecorder(stream, { mimeType });
       mediaRecorderRef.current = mediaRecorder;
 
-      console.log("📤 Emitting start_speak");
+      console.log("Emitting start_speak");
       socketRef.current.emit("start_speak", { session_id: sessionId });
 
       mediaRecorder.ondataavailable = async (e) => {
         if (!e.data || e.data.size === 0) return;
         
-        console.log(`📦 Chunk size: ${e.data.size} bytes`);
+        console.log(`Chunk size: ${e.data.size} bytes`);
 
         try {
           const arrayBuffer = await e.data.arrayBuffer();
@@ -203,17 +203,17 @@ export default function App() {
             chunk: Array.from(uint8),
           });
         } catch (err) {
-          console.error("❌ Chunk send error:", err);
+          console.error("Chunk send error:", err);
         }
       };
 
       mediaRecorder.onstart = () => {
-        console.log("✅ Recording started");
+        console.log("Recording started");
         setIsRecording(true);
       };
       
       mediaRecorder.onstop = () => {
-        console.log("⏹️ Recording stopped");
+        console.log("⏹Recording stopped");
         setIsRecording(false);
         
         if (streamRef.current) {
@@ -224,27 +224,27 @@ export default function App() {
       mediaRecorder.start(1000);
       
     } catch (e) {
-      console.error("❌ startRecording error:", e);
+      console.error("startRecording error:", e);
       setError("无法开启麦克风: (Please enable microphone usage for browser if not enabled) " + (e.message || e));
     }
   }
 
   function stopRecording() {
     try {
-      console.log("⏹️ Stopping recording...");
+      console.log("⏹Stopping recording...");
       
       if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
         mediaRecorderRef.current.stop();
       }
       
-      console.log("📤 Emitting end_speak with auto_submit:", autoSubmit);
+      console.log("Emitting end_speak with auto_submit:", autoSubmit);
       socketRef.current.emit("end_speak", { 
         session_id: sessionId,
         auto_submit: autoSubmit
       });
       
     } catch (e) {
-      console.error("❌ stopRecording error:", e);
+      console.error("stopRecording error:", e);
       setError("停止录音失败");
     }
   }

@@ -6,7 +6,7 @@ import re
 class LLMHandler:
     def __init__(self):
         
-        self.ollama_url = "http://127.0.0.1:11434/api/generate"
+        self.ollama_url = "http://ollama-service:11434/api/generate"
         self.chat_model = "qwen2.5:1.5b"
         self.feedback_model = "qwen2.5:3b"
         self.hsk_level = "4" # tune feedback highlighting for which hsk levels
@@ -59,7 +59,6 @@ class LLMHandler:
             return result_text
 
         except Exception as e:
-            print(f"LLM Error: {e}")
             return "系统好像连不上，你可以再试一次吗？"
 
     # user feedback model to correct sentences
@@ -191,7 +190,6 @@ class LLMHandler:
         try:
             # Unload chat model, load feedback model
             requests.post(self.ollama_url, json={"model": self.chat_model, "keep_alive": 0})
-            print("→ Loading 3B Feedback Model...")
             
             response = self._call_ollama(self.feedback_model, prompt, 0.3, 0.9, 0)
             raw = self._safe_parse_response(response).strip()
@@ -206,14 +204,11 @@ class LLMHandler:
                 parsed['highlights'] = []
             if 'note' not in parsed:
                 parsed['note'] = ''
-            
-            print(f"✅ Corrected: {parsed['corrected']}")
-            print(f"📚 Highlights: {len(parsed['highlights'])} items")
+        
             
             return parsed
             
         except Exception as e:
-            print(f"[ERROR] Correction failed: {e}")
             return {
                 "corrected": broken_sentence,
                 "highlights": [],
@@ -277,4 +272,24 @@ class LLMHandler:
                 "top_p": top_p,
             }
         }
-        return requests.post(self.ollama_url, json=payload)
+        
+        try:
+            response = requests.post(self.ollama_url, json=payload, timeout=300)
+            
+            # Check if model exists
+            if response.status_code == 404:
+                print(f"Model {model} not found. Available models:")
+                try:
+                    models_response = requests.get("http://ollama-service:11434/api/tags")
+                    print(models_response.json())
+                except:
+                    pass
+                raise Exception(f"Model {model} not loaded in Ollama")
+            
+            return response
+        except requests.exceptions.ConnectionError:
+            print(f"Cannot connect to Ollama service at {self.ollama_url}")
+            raise
+        except requests.exceptions.Timeout:
+            print(f"Ollama request timed out for model {model}")
+            raise

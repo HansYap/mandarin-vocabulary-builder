@@ -1,6 +1,8 @@
 import { useState } from 'react';
 import { v4 as uuidv4 } from "uuid";
 
+const API_BASE_URL = import.meta.env.VITE_BACKEND_URL || "http://localhost:5000";
+
 export function useSession({
     audioRef, 
     setMessages,
@@ -19,7 +21,7 @@ export function useSession({
         setError(null);
         setEndingSession(true);
         try {
-        const resp = await fetch("http://127.0.0.1:5000/api/end-session/", {
+        const resp = await fetch(`${API_BASE_URL}/api/end-session`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ session_id: sessionId }),

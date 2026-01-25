@@ -3,7 +3,7 @@ from backend.state.store import transcripts, conversation_histories, llm
 import requests
 
 # MeloTTS API endpoint
-MELOTTS_API_URL = "http://127.0.0.1:8000/tts"
+MELOTTS_API_URL = "http://tts-service:8000/tts"
 
 chat_bp = Blueprint('chat', __name__)
 
@@ -28,12 +28,6 @@ def chat():
     # Init session storage
     conversation_histories.setdefault(session_id, [])
     transcripts.setdefault(session_id, [])
-
-    # Log if edited
-    if is_edited and original_text:
-        print(f"📝 User edited transcript:")
-        print(f"   Original: '{original_text}'")
-        print(f"   Edited:   '{user_input}'")
 
     transcripts[session_id].append({'role': 'user', 'text': user_input})
 

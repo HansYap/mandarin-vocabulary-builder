@@ -1,0 +1,21 @@
+# Virtual environment
+venv/
+env/
+.venv/
+
+# Python cache
+__pycache__/
+*.py[cod]
+
+# Models cache
+*.pth
+*.ckpt
+
+# IDE & OS
+.vscode/
+.idea/
+.DS_Store
+
+# Git
+.git/
+.gitignore

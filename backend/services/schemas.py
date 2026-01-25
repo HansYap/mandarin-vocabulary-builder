@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field
-from typing import List, Optional
+from typing import List
 
 # This maps 1:1 to a "Vocab Card" component in your UI
 class VocabCard(BaseModel):
