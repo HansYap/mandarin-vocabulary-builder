@@ -113,7 +113,7 @@ I believe privacy and having the freedom to talk about what ever you want is ext
 > WIP
 
 ### Prerequisites
-- CUDA-compatible GPU (recommended) or any other GPU
+- CUDA-compatible GPU (recommended) or any other GPU 
 - 6GB+ VRAM, 10GB+ disk space
 
 ### Quick Start
