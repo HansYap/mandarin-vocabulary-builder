@@ -2,7 +2,7 @@
 
 > **Learn the words you actually use, not the ones from a textbook.**
 
-A privacy-first conversational AI that helps intermediate Mandarin learners expand their vocabulary through natural daily conversations—completely offline.
+A privacy-first conversational AI that helps intermediate Mandarin learners expand their vocabulary through natural daily conversations, completely offline.
 
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
 
