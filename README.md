@@ -24,7 +24,7 @@ But when you try to discuss your career, emotions, or current events? You're stu
 
 ## Solution
 
-Talk to an AI friend about your actual life—in Mandarin. Don't know a word? Use English. The app will:
+Talk to an AI friend about your actual life **in Mandarin**. Don't know a word? Use English. The app will:
 
 1. **Chat naturally** with you (ask follow-up questions, respond thoughtfully)
 2. **Flag mixed-language sentences** at the end of your session
@@ -100,7 +100,7 @@ I believe privacy and having the freedom to talk about what ever you want is ext
 4. **Modularity over monolith** - Microservices are more complex but easier to swap/upgrade
 
 ### Known Limitations
-- **First response is slow** - Models cold-start on first API call 
+- **First response is slow** - Models cold-start on first few API call 
 - **GPU configured by default** - CPU inference works but is painfully slow for real-time chat
 - **No conversation history** - Sessions aren't saved automatically 
 - **HSK classification isn't perfect** - Qwen's vocabulary tagging is heuristic-based and non-deterministic
@@ -162,7 +162,12 @@ You should see the chat interface ready to use!
 
 ### Quick Start (Subsequent Runs)
 
-After initial setup, simply run:
+After initial setup, have **Docker Desktop running**, then:
+
+```bash
+cd mandarin-vocabulary-builder
+```
+
 ```bash
 docker compose up
 ```
