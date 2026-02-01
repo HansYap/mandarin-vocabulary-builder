@@ -2,7 +2,7 @@
 
 > **Learn the words you actually use, not the ones from a textbook.**
 
-A privacy-first conversational AI that helps intermediate Mandarin learners expand their vocabulary through natural daily conversations—completely offline.
+A privacy-first conversational AI that helps intermediate Mandarin learners expand their vocabulary through natural daily conversations, completely offline.
 
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
 
@@ -24,7 +24,7 @@ But when you try to discuss your career, emotions, or current events? You're stu
 
 ## Solution
 
-Talk to an AI friend about your actual life—in Mandarin. Don't know a word? Use English. The app will:
+Talk to an AI friend about your actual life **in Mandarin**. Don't know a word? Use English. The app will:
 
 1. **Chat naturally** with you (ask follow-up questions, respond thoughtfully)
 2. **Flag mixed-language sentences** at the end of your session
@@ -100,7 +100,7 @@ I believe privacy and having the freedom to talk about what ever you want is ext
 4. **Modularity over monolith** - Microservices are more complex but easier to swap/upgrade
 
 ### Known Limitations
-- **First response is slow** - Models cold-start on first API call 
+- **First response is slow** - Models cold-start on first few API call 
 - **GPU configured by default** - CPU inference works but is painfully slow for real-time chat
 - **No conversation history** - Sessions aren't saved automatically 
 - **HSK classification isn't perfect** - Qwen's vocabulary tagging is heuristic-based and non-deterministic
@@ -110,15 +110,97 @@ I believe privacy and having the freedom to talk about what ever you want is ext
 
 ## Installation
 
-> WIP
-
 ### Prerequisites
-- CUDA-compatible GPU (recommended) or any other GPU 
-- 6GB+ VRAM, 10GB+ disk space
 
-### Quick Start
+**Hardware Requirements:**
+- CUDA-compatible GPU with 8GB+ VRAM (recommended)
+  - Alternatively: AMD GPU or Apple Silicon (slower but functional)
+  - CPU fallback available (significantly slower, not recommended for real-time use)
 
-> WIP
+**Software Requirements:**
+- **[Docker Desktop](https://www.docker.com/products/docker-desktop/)** (includes Docker Engine + Docker Compose)
+
+**For GPU Support (NVIDIA only):**
+- NVIDIA GPU drivers installed on your host system
+  - Verify with: `nvidia-smi`
+
+**Disk Space:**
+- ~50GB free space (for Docker images, models & code)
+
+---
+
+### Initial Setup
+
+#### 1. Clone the Repository
+```bash
+git clone https://github.com/yourusername/mandarin-vocabulary-builder.git
+cd mandarin-vocabulary-builder
+```
+
+#### 2. Start up Docker engine
+Run Docker Desktop in the background
+
+#### 3. Build and Start Services
+```bash
+docker compose up --build
+```
+
+**First-time setup notes:**
+- This will download all required models (~40-41GB)
+- Initial build takes a while depending on your internet speed
+- Models will be cached for future runs in docker volumes
+
+#### 3. Access the Application
+Once all services are running, open your browser and navigate to **frontend-service**:
+```
+http://localhost:5173
+```
+
+You should see the chat interface ready to use!
+
+---
+
+### Quick Start (Subsequent Runs)
+
+After initial setup, have **Docker Desktop running**, then:
+
+```bash
+cd mandarin-vocabulary-builder
+```
+
+```bash
+docker compose up
+```
+
+The application will start with all models cached and ready.
+
+**To stop the application:**
+```bash
+Ctrl^C Ctrl^C
+```
+
+---
+
+### Troubleshooting
+
+**GPU not detected?**
+- Verify NVIDIA drivers: `nvidia-smi`
+
+**Services failing to start?**
+- Check Docker logs: `docker compose logs <service-name>`
+- Ensure ports 5173, 5000, and microservice ports aren't already in use
+- Verify you have sufficient disk space for model downloads
+
+**Models loading slowly?**
+- First response after startup is always slower (cold start)
+- Chat with the LLM a few times, after a few calls, TTS and Ollama models will be loaded and start working as intended
+- Subsequent responses should be faster as models stay loaded
+- Consider increasing Docker memory allocation in Docker Desktop settings
+
+**Out of memory errors?**
+- Reduce model sizes in configuration files
+- Close other GPU-intensive applications
+- Consider using CPU fallback (modify docker-compose.yml GPU settings)
 
 ---
 
