@@ -66,14 +66,27 @@ services:
       start_period: 600s  # 10 minutes grace period
     restart: unless-stopped
 
+  tts-pull-model:
+    build:
+      context: ./tts_service
+      dockerfile: Dockerfile.fixed
+    volumes:
+      - tts_models:/root/.cache/melo
+      - tts_hf_cache:/root/.cache/huggingface 
+    entrypoint: ["python", "-c", "from melo.api import TTS; import io; model = TTS(language='ZH', device='cpu'); model.tts_to_file('你好', 0, io.BytesIO(), format='WAV', quiet=True)"]
+
   tts-service:
     build:
       context: ./tts_service
       dockerfile: Dockerfile.fixed
+    depends_on:
+      tts-pull-model:
+        condition: service_completed_successfully
     ports:
       - "8000:8000"
     volumes:
       - tts_models:/root/.cache/melo
+      - tts_hf_cache:/root/.cache/huggingface 
     environment:
       - NVIDIA_VISIBLE_DEVICES=all
     deploy:
@@ -133,6 +146,7 @@ services:
 volumes:
   asr_models:
   tts_models:
+  tts_hf_cache:
   ollama_data:
 
 

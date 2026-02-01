@@ -11,6 +11,7 @@ import ChatColumn from "./components/chat/chat_display/ChatColumn";
 
 
 const SOCKET_URL = import.meta.env.VITE_BACKEND_URL || "http://localhost:5000";
+const cleanSocketUrl = SOCKET_URL.endsWith('/') ? SOCKET_URL.slice(0, -1) : SOCKET_URL;
 
 export default function App() {
   const [messages, setMessages] = useState([]);
@@ -74,7 +75,7 @@ export default function App() {
   
 
   useEffect(() => {
-    const socket = io(SOCKET_URL, { 
+    const socket = io(cleanSocketUrl, { 
       transports: ["websocket"],
       reconnection: true
     });

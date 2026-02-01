@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 
 const API_BASE_URL = import.meta.env.VITE_BACKEND_URL || "http://localhost:5000";
+const cleanBaseUrl = API_BASE_URL.replace(/\/$/, "");
 
 export function useDictionary() {
     const [dictionaryEntry, setDictionaryEntry] = useState(null);
@@ -29,6 +30,7 @@ export function useDictionary() {
         }
 
         const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 15000);
         dictionaryAbortRef.current = controller;
 
         // Position popover immediately (desktop)
@@ -45,7 +47,7 @@ export function useDictionary() {
 
         try {
         const resp = await fetch(
-            `${API_BASE_URL}/api/dictionary/lookup`,
+            `${cleanBaseUrl}/api/dictionary/lookup`,
             {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -53,6 +55,7 @@ export function useDictionary() {
             signal: controller.signal,
             }
         );
+        clearTimeout(timeoutId);
 
         const data = await resp.json();
 

@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from 'react';
 import { v4 as uuidv4 } from "uuid";
 
 const API_BASE_URL = import.meta.env.VITE_BACKEND_URL || "http://localhost:5000";
+const cleanBaseUrl = API_BASE_URL.replace(/\/$/, "");
 
 export function useChat({ 
     sessionId, 
@@ -78,7 +79,7 @@ export function useChat({
 
         try {
         setLoading(true);
-        const resp = await fetch(`${API_BASE_URL}/api/chat`, {
+        const resp = await fetch(`${cleanBaseUrl}/api/chat`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ 

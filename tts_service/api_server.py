@@ -21,8 +21,16 @@ async def lifespan(app: FastAPI):
         app.state.tts_models = {
             'ZH': TTS(language='ZH', device=device)
         }
+        
+        print("Warming up model")
+        import io
+        model = app.state.tts_models['ZH']
+        speaker_id = list(model.hps.data.spk2id.values())[0] 
+        
+        model.tts_to_file("你好", speaker_id, io.BytesIO(), format='WAV', quiet=True)
+        
         app.state.model_loaded = True
-        print("Models loaded successfully!")
+        print("Models loaded and warmed up successfully!")
     except Exception as e:
         app.state.model_loaded = False
         print(f"CRITICAL: Error loading models: {e}")
