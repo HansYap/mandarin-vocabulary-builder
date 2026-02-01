@@ -118,6 +118,7 @@ I believe privacy and having the freedom to talk about what ever you want is ext
   - CPU fallback available (significantly slower, not recommended for real-time use)
 
 **Software Requirements:**
+- **WSL** (For Windows)
 - **[Docker Desktop](https://www.docker.com/products/docker-desktop/)** (includes Docker Engine + Docker Compose)
 
 **For GPU Support (NVIDIA only):**
